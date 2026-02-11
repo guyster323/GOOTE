@@ -44,7 +44,11 @@ export default function AppManagePage() {
   };
 
   useEffect(() => {
-    if (!user || !appId) return;
+    // Critical: Wait for both user and appId to be valid before doing anything
+    if (!user || !appId || typeof appId !== 'string') return;
+
+    console.log("Starting subscriptions for appId:", appId);
+    setLoading(true);
 
     // Real-time subscription for app details
     const unsubscribeApp = onSnapshot(doc(db, "apps", appId), (docSnap) => {
@@ -67,21 +71,20 @@ export default function AppManagePage() {
         };
 
         setApp(appInfo);
-        if (!editApp) {
-          setEditApp({
-            id: docSnap.id,
-            ...data,
-            minTesters: data.minTesters || 20,
-            testDuration: data.testDuration || 14
-          });
-        }
+        setEditApp(prev => prev ? prev : {
+          id: docSnap.id,
+          ...data,
+          minTesters: data.minTesters || 20,
+          testDuration: data.testDuration || 14
+        });
       } else {
         toast.error("앱을 찾을 수 없습니다.");
         router.push("/my-apps");
       }
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching app:", error);
+      console.error("Error fetching app snapshot:", error);
+      toast.error("데이터를 불러오는 중 오류가 발생했습니다.");
       setLoading(false);
     });
 
@@ -104,7 +107,6 @@ export default function AppManagePage() {
         }
       });
 
-      // Safe sort helper
       const safeTime = (ts: any) => {
         try {
           return ts?.toMillis ? ts.toMillis() : (ts ? new Date(ts).getTime() : 0);
@@ -116,13 +118,15 @@ export default function AppManagePage() {
 
       setPendingRequests(pending);
       setActiveTesters(active);
+    }, (error) => {
+      console.error("Error fetching participations snapshot:", error);
     });
 
     return () => {
       unsubscribeApp();
       unsubscribeParticipations();
     };
-  }, [user, appId, router, editApp]);
+  }, [user, appId, router]);
 
   const handleApprove = async (participationId: string) => {
     setProcessingId(participationId);

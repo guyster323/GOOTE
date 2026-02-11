@@ -34,10 +34,10 @@ export default function AppDetailPage() {
   useEffect(() => {
     if (!id) return;
 
-    // Real-time subscription for app details
     const unsubscribeApp = onSnapshot(doc(db, "apps", id as string), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        console.log("App data loaded:", data.name, data.stats);
         setApp({
           id: docSnap.id,
           ...data,
@@ -55,7 +55,7 @@ export default function AppDetailPage() {
       }
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching app:", error);
+      console.error("Error fetching app snapshot:", error);
       setLoading(false);
     });
 

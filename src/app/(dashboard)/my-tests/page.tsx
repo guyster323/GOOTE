@@ -42,22 +42,23 @@ export default function MyTestsPage() {
 
     const q = query(
       collection(db, "participations"),
-      where("testerId", "==", user.uid),
-      where("status", "==", "active")
+      where("testerId", "==", user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched = snapshot.docs.map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          appName: data.appName || "이름 없는 앱",
-          targetDays: data.targetDays || 14,
-          consecutiveDays: data.consecutiveDays || 0,
-          dailyChecks: data.dailyChecks || {},
-        };
-      }) as Participation[];
+      const fetched = snapshot.docs
+        .map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            appName: data.appName || "이름 없는 앱",
+            targetDays: data.targetDays || 14,
+            consecutiveDays: data.consecutiveDays || 0,
+            dailyChecks: data.dailyChecks || {},
+          };
+        })
+        .filter((p: any) => ["active", "pending", "completed"].includes(p.status)) as Participation[];
       setParticipations(fetched);
       setLoading(false);
     }, (error) => {

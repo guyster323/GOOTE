@@ -20,14 +20,18 @@ export default function AuthProvider({
       setUser(user);
 
       if (user) {
-        setIsLoading(true); // Ensure loading is true while fetching profile
-        // Subscribe to Firestore user document
+        // Force loading state until profile is fully fetched
+        setIsLoading(true);
+
         const unsubscribeProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
           if (snapshot.exists()) {
-            setProfile(snapshot.data() as any);
+            const data = snapshot.data();
+            console.log("Profile data loaded for:", user.uid, !!data.nickname);
+            setProfile(data as any);
           } else {
+            console.log("No profile document found for:", user.uid);
             setProfile(null);
-            setIsLoading(false);
+            setIsLoading(false); // Only set loading false if no doc exists
           }
         }, (error) => {
           console.error("Profile subscription error:", error);
@@ -36,6 +40,7 @@ export default function AuthProvider({
 
         return () => unsubscribeProfile();
       } else {
+        console.log("No user authenticated");
         setProfile(null);
         setIsLoading(false);
       }
