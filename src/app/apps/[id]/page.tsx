@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, use } from "react";
+import { useRouter } from "next/navigation";
 import { doc, getDoc, collection, addDoc, query, where, orderBy, getDocs, serverTimestamp, Timestamp, onSnapshot } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
@@ -16,8 +16,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
 
-export default function AppDetailPage() {
-  const { id } = useParams();
+export default function AppDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
+  const id = resolvedParams.id;
   const router = useRouter();
   const { user, profile } = useAuth();
   const [app, setApp] = useState<any>(null);
@@ -104,17 +105,25 @@ export default function AppDetailPage() {
 
   const fetchComments = async () => {
     try {
+      // Use simpler query to avoid index requirement during initial setup
       const q = query(
         collection(db, "comments"),
-        where("appId", "==", id),
-        orderBy("createdAt", "desc")
+        where("appId", "==", id)
       );
       const querySnapshot = await getDocs(q);
       const fetchedComments = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      setComments(fetchedComments);
+
+      // Sort client-side
+      const sortedComments = fetchedComments.sort((a: any, b: any) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return timeB - timeA;
+      });
+
+      setComments(sortedComments);
     } catch (error) {
       console.error("Error fetching comments:", error);
     }

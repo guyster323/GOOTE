@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,10 +29,11 @@ export default function OnboardingPage() {
     setIsSubmitting(true);
     try {
       const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
+      // Use setDoc with merge: true to create the document if it doesn't exist
+      await setDoc(userRef, {
         nickname: nickname.trim(),
-        updatedAt: new Date(),
-      });
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
 
       // Force local update
       updateProfile({ nickname: nickname.trim() });

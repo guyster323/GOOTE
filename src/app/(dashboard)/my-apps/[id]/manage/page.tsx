@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
-import { doc, getDoc, collection, query, where, onSnapshot, orderBy, deleteDoc, updateDoc } from "firebase/firestore";
+import { useEffect, useState, use } from "react";
+import { useRouter } from "next/navigation";
+import { doc, collection, query, where, onSnapshot, deleteDoc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
@@ -17,11 +17,11 @@ import { Loader2, ArrowLeft, Check, X, User, Settings, Info, Save } from "lucide
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function AppManagePage() {
+export default function AppManagePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const params = useParams();
+  const resolvedParams = use(params);
+  const appId = resolvedParams.id;
   const { user } = useAuth();
-  const appId = params.id as string;
 
   const [app, setApp] = useState<any>(null);
   const [loading, setLoading] = useState(true);
