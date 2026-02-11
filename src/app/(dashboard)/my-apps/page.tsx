@@ -35,10 +35,17 @@ export default function MyAppsPage() {
         where("status", "!=", "deleted")
       );
       const querySnapshot = await getDocs(q);
-      const fetchedApps = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as App[];
+      const fetchedApps = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          stats: {
+            participants: data.stats?.participants || 0,
+            dailyParticipants: data.stats?.dailyParticipants || 0,
+          },
+        };
+      }) as App[];
       setApps(fetchedApps);
     } catch (error) {
       console.error("Error fetching apps:", error);
@@ -124,11 +131,11 @@ export default function MyAppsPage() {
               <CardContent className="pb-4 space-y-2">
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <Users className="h-4 w-4" />
-                  <span>총 {app.stats.participants}명의 테스터</span>
+                  <span>총 {app.stats?.participants || 0}명의 테스터</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-green-600 font-bold">
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>오늘 {app.stats.dailyParticipants || 0}명 참여 중</span>
+                  <span>오늘 {app.stats?.dailyParticipants || 0}명 참여 중</span>
                 </div>
               </CardContent>
               <CardFooter className="bg-slate-50/50 border-t flex gap-2 p-3">

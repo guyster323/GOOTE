@@ -52,10 +52,17 @@ export default function MyTestsPage() {
         where("status", "==", "active")
       );
       const querySnapshot = await getDocs(q);
-      const fetched = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Participation[];
+      const fetched = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          appName: data.appName || "이름 없는 앱",
+          targetDays: data.targetDays || 14,
+          consecutiveDays: data.consecutiveDays || 0,
+          dailyChecks: data.dailyChecks || {},
+        };
+      }) as Participation[];
       setParticipations(fetched);
     } catch (error) {
       console.error("Error fetching participations:", error);
@@ -121,8 +128,8 @@ export default function MyTestsPage() {
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {participations.map((p) => {
-            const progress = (p.consecutiveDays / p.targetDays) * 100;
-            const isCheckedInToday = p.dailyChecks[todayStr];
+            const progress = ((p.consecutiveDays || 0) / (p.targetDays || 14)) * 100;
+            const isCheckedInToday = p.dailyChecks ? p.dailyChecks[todayStr] : false;
 
             return (
               <Card key={p.id} className="flex flex-col">
@@ -134,14 +141,14 @@ export default function MyTestsPage() {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">진행률</span>
                       <span className="font-medium">
-                        {p.consecutiveDays} / {p.targetDays} 일
+                        {p.consecutiveDays || 0} / {p.targetDays || 14} 일
                       </span>
                     </div>
                     <Progress value={progress} className="h-2" />
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>시작일: {p.startDate ? format(p.startDate.toDate(), "yyyy년 M월 d일") : "..."}</span>
+                    <span>시작일: {p.startDate && p.startDate.toDate ? format(p.startDate.toDate(), "yyyy년 M월 d일") : "미정"}</span>
                   </div>
                 </CardContent>
                 <CardFooter>
@@ -153,10 +160,10 @@ export default function MyTestsPage() {
                   >
                     {checkingInId === p.id ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : isCheckedInToday ? (
-                      <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" />
-                    ) : null}
-                    {isCheckedInToday ? "오늘 출석 완료" : "오늘의 출석 체크"}
+                    ) : (
+                      !isCheckedInToday && <CheckCircle2 className="mr-2 h-4 w-4" />
+                    )}
+                    {isCheckedInToday ? <><CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> 오늘 출석 완료</> : "오늘의 출석 체크"}
                   </Button>
                 </CardFooter>
               </Card>

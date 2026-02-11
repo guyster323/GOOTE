@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -56,7 +57,14 @@ const formSchema = z.object({
 
 export default function RegisterAppPage() {
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      toast.error("로그인이 필요한 페이지입니다.");
+      router.push("/?mode=login");
+    }
+  }, [user, isLoading, router]);
 
   const isGuideDismissed = profile?.dismissedGuides?.includes("google-group-setup");
 

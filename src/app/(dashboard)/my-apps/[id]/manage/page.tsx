@@ -46,8 +46,21 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
             router.push("/my-apps");
             return;
           }
-          setApp({ id: docSnap.id, ...data });
-          setEditApp({ id: docSnap.id, ...data });
+          setApp({
+            id: docSnap.id,
+            ...data,
+            stats: {
+              participants: data.stats?.participants || 0,
+              dailyParticipants: data.stats?.dailyParticipants || 0,
+            },
+            minTesters: data.minTesters || 20,
+          });
+          setEditApp({
+            id: docSnap.id,
+            ...data,
+            minTesters: data.minTesters || 20,
+            testDuration: data.testDuration || 14
+          });
         } else {
           toast.error("앱을 찾을 수 없습니다.");
           router.push("/my-apps");
@@ -81,8 +94,8 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
       });
 
       // Client-side sort since we might not have complex indexes for timestamp yet
-      pending.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-      active.sort((a, b) => (b.updatedAt?.toMillis() || 0) - (a.updatedAt?.toMillis() || 0));
+      pending.sort((a, b) => (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0) - (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0));
+      active.sort((a, b) => (b.updatedAt?.toMillis ? b.updatedAt.toMillis() : 0) - (a.updatedAt?.toMillis ? a.updatedAt.toMillis() : 0));
 
       setPendingRequests(pending);
       setActiveTesters(active);
@@ -291,7 +304,7 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
                       <div className="flex items-center gap-4">
                         <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center">
                           <span className="font-bold text-slate-500">
-                            {tester.consecutiveDays}일
+                            {tester.consecutiveDays || 0}일
                           </span>
                         </div>
                         <div>
@@ -306,10 +319,10 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium text-slate-900">
-                          진행률: {Math.min(100, Math.round((tester.consecutiveDays / tester.targetDays) * 100))}%
+                          진행률: {tester.targetDays ? Math.min(100, Math.round(((tester.consecutiveDays || 0) / tester.targetDays) * 100)) : 0}%
                         </p>
                         <p className="text-xs text-slate-500">
-                          {tester.consecutiveDays} / {tester.targetDays} 일
+                          {tester.consecutiveDays || 0} / {tester.targetDays || 14} 일
                         </p>
                       </div>
                     </div>

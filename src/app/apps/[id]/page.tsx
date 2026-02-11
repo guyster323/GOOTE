@@ -136,9 +136,19 @@ export default function AppDetailPage() {
       const requestParticipation = httpsCallable(functions, "requestParticipation");
       await requestParticipation({ appId: id, message: "Direct join" });
 
+      // Optimistic update
+      setParticipation({
+        status: "active",
+        testerId: user.uid,
+        appId: id,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      });
       setJoinedGroup(true);
+
       toast.success("테스터로 등록되었습니다! 이제 앱을 다운로드할 수 있습니다.");
-      fetchParticipation(); // Refresh status
+      // Background fetch to ensure consistency
+      fetchParticipation();
     } catch (error: any) {
       console.error("Error joining participation:", error);
       toast.error(error.message || "참여 등록에 실패했습니다.");
