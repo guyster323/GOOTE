@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 인증 필수
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // 본인 확인
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // 관리자 확인
+    function isAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
+
+      // Private data (Tokens, etc.) - Only accessible via Admin SDK (Cloud Functions)
+      match /private/{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // Apps
+    match /apps/{appId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() &&
+        (resource.data.developerId == request.auth.uid || isAdmin());
+      allow delete: if isAuthenticated() &&
+        (resource.data.developerId == request.auth.uid || isAdmin());
+    }
+
+    // Participations
+    match /participations/{participationId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.testerId == request.auth.uid ||
+         get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid);
+
+      // Testers can create pending requests, but ONLY pending
+      allow create: if isAuthenticated() &&
+                    request.resource.data.status == 'pending' &&
+                    request.resource.data.testerId == request.auth.uid;
+
+      // Developers can update status (e.g. to active/rejected)
+      // Testers can update specific fields if needed (e.g. check-in)
+      allow update: if isAuthenticated() && (
+        (resource.data.testerId == request.auth.uid && request.resource.data.status == resource.data.status) ||
+        (get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid)
+      );
+
+      // Developers can delete requests (reject)
+      allow delete: if isAuthenticated() &&
+        get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid;
+    }
+
+    // Likes
+    match /likes/{likeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow delete: if isAuthenticated() && resource.data.fromUserId == request.auth.uid;
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Rankings (read-only for users)
+    match /rankings/{rankingId} {
+      allow read: if isAuthenticated();
+    }
+
+    // Admin only
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}

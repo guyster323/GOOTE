@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install zustand @tanstack/react-query react-hook-form zod lucide-react)",
+      "Bash(npx shadcn-ui@latest init --yes)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(npm install firebase)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(ls:*)",
+      "Bash(npm install date-fns)",
+      "Bash(firebase projects:list:*)",
+      "Bash(firebase target:list:*)",
+      "Bash(firebase use:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(npm run build)",
+      "Bash(npm install tw-animate-css)",
+      "Bash(firebase experiments:enable:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Implement GOOTE platform with Next.js 14 and Firebase\n\n- Setup Next.js 14 \\(App Router\\) with shadcn/ui and Tailwind CSS v4\n- Overhaul UI/UX with premium ''Pro-Max'' Inset Sidebar and glassmorphism\n- Implement Firebase Auth with Google Login and nickname customization\n- Build Firestore-triggered Cloud Functions for apps, tests, and rankings\n- Integrate Gmail API with OAuth2 for daily reminder mail scheduler\n- Optimize mobile responsiveness and fix 404 route issues\n- Configure Firebase Hosting, Storage, and Firestore security rules\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(dir:*)",
+      "Bash(npm run lint)",
+      "Bash(npx eslint:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: Resolve lint errors and improve dashboard UI\n\n- Remove unused imports \\(CardDescription, CardFooter, User, Bell, etc.\\)\n- Escape special characters in JSX \\(quotes and apostrophes\\)\n- Fix any type usage with proper Firestore Timestamp type\n- Add dialog component for app registration help\n- Update dashboard layout and styling\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(findstr:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(git push:*)",
+      "Bash(npx firebase deploy:*)",
+      "Bash(git config:*)",
+      "Bash(git -c credential.helper= push origin main)",
+      "Bash(firebase functions:delete:*)",
+      "WebFetch(domain:claude.ai)"
+    ]
+  }
+}
