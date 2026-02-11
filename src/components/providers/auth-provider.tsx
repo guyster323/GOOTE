@@ -20,6 +20,7 @@ export default function AuthProvider({
       setUser(user);
 
       if (user) {
+        setIsLoading(true); // Ensure loading is true while fetching profile
         // Subscribe to Firestore user document
         const unsubscribeProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
           if (snapshot.exists()) {
@@ -28,6 +29,9 @@ export default function AuthProvider({
             setProfile(null);
             setIsLoading(false);
           }
+        }, (error) => {
+          console.error("Profile subscription error:", error);
+          setIsLoading(false);
         });
 
         return () => unsubscribeProfile();

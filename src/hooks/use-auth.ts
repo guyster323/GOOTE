@@ -35,5 +35,6 @@ export const useAuth = () => {
     setUser,
     setIsLoading,
     dismissGuide,
+    updateProfile: updateStoreProfile,
   };
 };

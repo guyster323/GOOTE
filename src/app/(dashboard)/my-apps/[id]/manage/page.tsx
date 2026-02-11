@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { doc, getDoc, collection, query, where, onSnapshot, orderBy, deleteDoc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
@@ -17,10 +17,11 @@ import { Loader2, ArrowLeft, Check, X, User, Settings, Info, Save } from "lucide
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function AppManagePage({ params }: { params: { id: string } }) {
+export default function AppManagePage() {
   const router = useRouter();
+  const params = useParams();
   const { user } = useAuth();
-  const appId = params.id;
+  const appId = params.id as string;
 
   const [app, setApp] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -30,49 +31,59 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
   const [savingSettings, setSavingSettings] = useState(false);
   const [editApp, setEditApp] = useState<any>(null);
 
+  const safeFormatDate = (timestamp: any) => {
+    try {
+      if (!timestamp) return '방금 전';
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      // Check if date is valid
+      if (isNaN(date.getTime())) return '날짜 오류';
+      return formatDistanceToNow(date, { addSuffix: true, locale: ko });
+    } catch (e) {
+      return '날짜 정보 없음';
+    }
+  };
+
   useEffect(() => {
-    if (!user) return;
+    if (!user || !appId) return;
 
-    // Fetch app details
-    const fetchApp = async () => {
-      try {
-        const docRef = doc(db, "apps", appId);
-        const docSnap = await getDoc(docRef);
+    // Real-time subscription for app details
+    const unsubscribeApp = onSnapshot(doc(db, "apps", appId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.developerId !== user.uid) {
+          toast.error("접근 권한이 없습니다.");
+          router.push("/my-apps");
+          return;
+        }
 
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          if (data.developerId !== user.uid) {
-            toast.error("접근 권한이 없습니다.");
-            router.push("/my-apps");
-            return;
-          }
-          setApp({
-            id: docSnap.id,
-            ...data,
-            stats: {
-              participants: data.stats?.participants || 0,
-              dailyParticipants: data.stats?.dailyParticipants || 0,
-            },
-            minTesters: data.minTesters || 20,
-          });
+        const appInfo = {
+          id: docSnap.id,
+          ...data,
+          stats: {
+            participants: data.stats?.participants || 0,
+            dailyParticipants: data.stats?.dailyParticipants || 0,
+          },
+          minTesters: data.minTesters || 20,
+        };
+
+        setApp(appInfo);
+        if (!editApp) {
           setEditApp({
             id: docSnap.id,
             ...data,
             minTesters: data.minTesters || 20,
             testDuration: data.testDuration || 14
           });
-        } else {
-          toast.error("앱을 찾을 수 없습니다.");
-          router.push("/my-apps");
         }
-      } catch (error) {
-        console.error("Error fetching app:", error);
-      } finally {
-        setLoading(false);
+      } else {
+        toast.error("앱을 찾을 수 없습니다.");
+        router.push("/my-apps");
       }
-    };
-
-    fetchApp();
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching app:", error);
+      setLoading(false);
+    });
 
     // Subscribe to participation requests
     const q = query(
@@ -80,7 +91,7 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
       where("appId", "==", appId)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeParticipations = onSnapshot(q, (snapshot) => {
       const pending: any[] = [];
       const active: any[] = [];
 
@@ -93,16 +104,25 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
         }
       });
 
-      // Client-side sort since we might not have complex indexes for timestamp yet
-      pending.sort((a, b) => (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0) - (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0));
-      active.sort((a, b) => (b.updatedAt?.toMillis ? b.updatedAt.toMillis() : 0) - (a.updatedAt?.toMillis ? a.updatedAt.toMillis() : 0));
+      // Safe sort helper
+      const safeTime = (ts: any) => {
+        try {
+          return ts?.toMillis ? ts.toMillis() : (ts ? new Date(ts).getTime() : 0);
+        } catch { return 0; }
+      };
+
+      pending.sort((a, b) => safeTime(b.createdAt) - safeTime(a.createdAt));
+      active.sort((a, b) => safeTime(b.updatedAt) - safeTime(a.updatedAt));
 
       setPendingRequests(pending);
       setActiveTesters(active);
     });
 
-    return () => unsubscribe();
-  }, [user, appId, router]);
+    return () => {
+      unsubscribeApp();
+      unsubscribeParticipations();
+    };
+  }, [user, appId, router, editApp]);
 
   const handleApprove = async (participationId: string) => {
     setProcessingId(participationId);
@@ -240,10 +260,10 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
                           <User className="h-5 w-5 text-slate-500" />
                         </div>
                         <div>
-                          <p className="font-bold text-slate-900">{req.testerNickname}</p>
-                          <p className="text-sm text-slate-500">{req.testerEmail}</p>
+                          <p className="font-bold text-slate-900">{String(req.testerNickname || '익명')}</p>
+                          <p className="text-sm text-slate-500">{String(req.testerEmail || '이메일 없음')}</p>
                           <p className="text-xs text-slate-400 mt-1">
-                            요청일: {req.createdAt ? formatDistanceToNow(req.createdAt.toDate(), { addSuffix: true, locale: ko }) : '방금 전'}
+                            요청일: {safeFormatDate(req.createdAt)}
                           </p>
                         </div>
                       </div>
@@ -309,12 +329,12 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="font-bold text-slate-900">{tester.testerNickname}</p>
+                            <p className="font-bold text-slate-900">{String(tester.testerNickname || '익명')}</p>
                             {tester.status === 'completed' && (
                               <Badge variant="secondary" className="bg-green-100 text-green-700">완료됨</Badge>
                             )}
                           </div>
-                          <p className="text-sm text-slate-500">{tester.testerEmail}</p>
+                          <p className="text-sm text-slate-500">{String(tester.testerEmail || '이메일 없음')}</p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -413,13 +433,13 @@ export default function AppManagePage({ params }: { params: { id: string } }) {
                     <Input
                       id="minTesters"
                       type="number"
-                      value={editApp?.minTesters || ""}
-                      onChange={(e) => setEditApp({ ...editApp, minTesters: e.target.value })}
+                      value={editApp?.minTesters || 20}
+                      onChange={(e) => setEditApp(editApp ? { ...editApp, minTesters: e.target.value } : null)}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>테스트 기간 (변경 불가)</Label>
-                    <Input value={editApp?.testDuration + "일"} disabled />
+                    <Input value={(editApp?.testDuration || 14) + "일"} disabled />
                   </div>
                 </div>
 

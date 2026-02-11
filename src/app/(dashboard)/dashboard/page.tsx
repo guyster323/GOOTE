@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, query, where, getDocs, getCountFromServer, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, limit, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -25,40 +25,45 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user]);
-
-  const fetchData = async () => {
     if (!user) return;
-    try {
-      const testsQuery = query(
-        collection(db, "participations"),
-        where("testerId", "==", user.uid),
-        where("status", "==", "active")
-      );
 
-      const appsQuery = query(
-        collection(db, "apps"),
-        where("developerId", "==", user.uid),
-        where("status", "!=", "deleted")
-      );
+    // Real-time subscription for participations
+    const testsQuery = query(
+      collection(db, "participations"),
+      where("testerId", "==", user.uid)
+    );
 
-      const [testsSnap, appsSnap] = await Promise.all([
-        getCountFromServer(testsQuery),
-        getDocs(appsQuery),
-      ]);
+    const unsubscribeTests = onSnapshot(testsQuery, (snapshot) => {
+      // Filter active or completed on client side for more robust counting
+      const activeCount = snapshot.docs.filter(d =>
+        ["active", "pending", "completed"].includes(d.data().status)
+      ).length;
+      setStats(prev => ({ ...prev, activeTests: activeCount }));
+    });
 
-      const apps = appsSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
+    // Real-time subscription for registered apps
+    const appsQuery = query(
+      collection(db, "apps"),
+      where("developerId", "==", user.uid)
+    );
+
+    const unsubscribeApps = onSnapshot(appsQuery, async (snapshot) => {
+      const apps = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() as any }))
+        .filter(app => app.status !== "deleted");
       const totalLikes = apps.reduce((acc, app) => acc + (app.stats?.likes || 0), 0);
       const dailyParticipants = apps.reduce((acc, app) => acc + (app.stats?.dailyParticipants || 0), 0);
 
+      setStats(prev => ({
+        ...prev,
+        registeredApps: snapshot.size,
+        totalLikes: totalLikes,
+        dailyParticipants: dailyParticipants,
+      }));
+
       // Fetch recent comments for user's apps
-      let comments: any[] = [];
       if (apps.length > 0) {
         const appIds = apps.map(app => app.id);
-        // Firestore 'in' query supports up to 10 IDs. For more, we'd need multiple queries.
         const q = query(
           collection(db, "comments"),
           where("appId", "in", appIds.slice(0, 10)),
@@ -66,26 +71,24 @@ export default function DashboardPage() {
           limit(5)
         );
         const commentsSnap = await getDocs(q);
-        comments = commentsSnap.docs.map(doc => ({
+        const comments = commentsSnap.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
           appName: apps.find(a => a.id === doc.data().appId)?.name
         }));
+        setRecentComments(comments);
       }
-
-      setStats({
-        activeTests: testsSnap.data().count,
-        registeredApps: appsSnap.size,
-        totalLikes: totalLikes,
-        dailyParticipants: dailyParticipants,
-      });
-      setRecentComments(comments);
-    } catch (error) {
-      console.error("Error fetching dashboard data:", error);
-    } finally {
       setLoading(false);
-    }
-  };
+    });
+
+    return () => {
+      unsubscribeTests();
+      unsubscribeApps();
+    };
+  }, [user]);
+
+  // Remove the old fetchData function call from useEffect and the function itself
+  // if not used elsewhere. In this case, it's replaced by subscriptions.
 
   if (loading) {
     return (

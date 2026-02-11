@@ -5,7 +5,7 @@ import {
   collection,
   query,
   where,
-  getDocs,
+  onSnapshot,
   doc,
   updateDoc,
   serverTimestamp,
@@ -38,21 +38,16 @@ export default function MyTestsPage() {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) {
-      fetchParticipations();
-    }
-  }, [user]);
-
-  const fetchParticipations = async () => {
     if (!user) return;
-    try {
-      const q = query(
-        collection(db, "participations"),
-        where("testerId", "==", user.uid),
-        where("status", "==", "active")
-      );
-      const querySnapshot = await getDocs(q);
-      const fetched = querySnapshot.docs.map((doc) => {
+
+    const q = query(
+      collection(db, "participations"),
+      where("testerId", "==", user.uid),
+      where("status", "==", "active")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetched = snapshot.docs.map((doc) => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -64,13 +59,15 @@ export default function MyTestsPage() {
         };
       }) as Participation[];
       setParticipations(fetched);
-    } catch (error) {
+      setLoading(false);
+    }, (error) => {
       console.error("Error fetching participations:", error);
       toast.error("테스트 목록을 불러오는데 실패했습니다.");
-    } finally {
       setLoading(false);
-    }
-  };
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleCheckIn = async (participation: Participation) => {
     const today = format(new Date(), "yyyy-MM-dd");
@@ -90,7 +87,7 @@ export default function MyTestsPage() {
       });
 
       toast.success(`${participation.appName} 출석 체크 성공!`);
-      fetchParticipations();
+      // No need to fetch manually, onSnapshot will handle it
     } catch (error) {
       console.error("Error checking in:", error);
       toast.error("출석 체크에 실패했습니다. 다시 시도해주세요.");
@@ -108,6 +105,17 @@ export default function MyTestsPage() {
   }
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
+
+  const safeDateFormat = (dateObj: any) => {
+    try {
+      if (!dateObj) return "미정";
+      const date = dateObj.toDate ? dateObj.toDate() : new Date(dateObj);
+      if (isNaN(date.getTime())) return "날짜 오류";
+      return format(date, "yyyy년 M월 d일");
+    } catch {
+      return "미정";
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -148,7 +156,7 @@ export default function MyTestsPage() {
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>시작일: {p.startDate && p.startDate.toDate ? format(p.startDate.toDate(), "yyyy년 M월 d일") : "미정"}</span>
+                    <span>시작일: {safeDateFormat(p.startDate)}</span>
                   </div>
                 </CardContent>
                 <CardFooter>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, collection, addDoc, query, where, orderBy, getDocs, serverTimestamp, Timestamp } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, query, where, orderBy, getDocs, serverTimestamp, Timestamp, onSnapshot } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,11 +32,37 @@ export default function AppDetailPage() {
   const [checkingParticipation, setCheckingParticipation] = useState(false);
 
   useEffect(() => {
-    if (id) {
-      fetchApp();
-      fetchComments();
-    }
-  }, [id]);
+    if (!id) return;
+
+    // Real-time subscription for app details
+    const unsubscribeApp = onSnapshot(doc(db, "apps", id as string), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setApp({
+          id: docSnap.id,
+          ...data,
+          stats: {
+            participants: data.stats?.participants || 0,
+            dailyParticipants: data.stats?.dailyParticipants || 0,
+            likes: data.stats?.likes || 0
+          },
+          androidParticipationLink: data.androidParticipationLink || data.androidLink,
+          webParticipationLink: data.webParticipationLink || data.webLink
+        });
+      } else {
+        toast.error("앱을 찾을 수 없습니다.");
+        router.push("/explore");
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching app:", error);
+      setLoading(false);
+    });
+
+    fetchComments();
+
+    return () => unsubscribeApp();
+  }, [id, router]);
 
   useEffect(() => {
     if (id && user) {
@@ -46,29 +72,8 @@ export default function AppDetailPage() {
     }
   }, [id, user]);
 
-  const fetchApp = async () => {
-    try {
-      const docRef = doc(db, "apps", id as string);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setApp({
-          id: docSnap.id,
-          ...data,
-          androidParticipationLink: data.androidParticipationLink || data.androidLink,
-          webParticipationLink: data.webParticipationLink || data.webLink
-        });
-      } else {
-        toast.error("앱을 찾을 수 없습니다.");
-        router.push("/explore");
-      }
-    } catch (error) {
-      console.error("Error fetching app:", error);
-      toast.error("앱 정보를 불러오는데 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Remove the old fetchApp function as it's replaced by onSnapshot
+  // Keep fetchParticipation and fetchComments as they are for now
 
   const fetchParticipation = async () => {
     if (!user || !id) return;
@@ -115,6 +120,17 @@ export default function AppDetailPage() {
     }
   };
 
+  // Safe date formatter
+  const safeFormatDate = (timestamp: any) => {
+    try {
+      if (!timestamp) return '방금 전';
+      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+      return formatDistanceToNow(date, { addSuffix: true, locale: ko });
+    } catch (e) {
+      return '날짜 정보 없음';
+    }
+  };
+
   const handleJoinRequest = async () => {
     if (!user) {
       toast.info("참여하려면 로그인이 필요합니다.");
@@ -132,26 +148,34 @@ export default function AppDetailPage() {
       // Open group link
       window.open(app.googleGroupLink, '_blank');
 
-      // Directly register as active tester
-      const requestParticipation = httpsCallable(functions, "requestParticipation");
-      await requestParticipation({ appId: id, message: "Direct join" });
-
-      // Optimistic update
-      setParticipation({
+      // Optimistic update FIRST - Instant UI feedback
+      const optimisticParticipation = {
         status: "active",
         testerId: user.uid,
         appId: id,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
-      });
+      };
+      setParticipation(optimisticParticipation);
       setJoinedGroup(true);
+      setShowParticipationSteps(true); // Ensure steps are shown to reveal download button
+
+      // Directly register as active tester
+      const requestParticipation = httpsCallable(functions, "requestParticipation");
+      await requestParticipation({ appId: id, message: "Direct join" });
 
       toast.success("테스터로 등록되었습니다! 이제 앱을 다운로드할 수 있습니다.");
-      // Background fetch to ensure consistency
-      fetchParticipation();
+
+      // Delay fetch to allow server propagation
+      setTimeout(() => {
+        fetchParticipation();
+      }, 2000);
+
     } catch (error: any) {
       console.error("Error joining participation:", error);
       toast.error(error.message || "참여 등록에 실패했습니다.");
+      // Revert on error
+      fetchParticipation();
     } finally {
       setRequesting(false);
     }
@@ -165,21 +189,40 @@ export default function AppDetailPage() {
     }
     if (!newComment.trim()) return;
 
+    const commentContent = newComment.trim();
     setSubmittingComment(true);
+
+    // Optimistic comment object
+    const optimisticComment = {
+      id: "temp-" + Date.now(),
+      appId: id,
+      userId: user.uid,
+      userName: profile?.nickname || user.displayName || "익명",
+      content: commentContent,
+      createdAt: Timestamp.now()
+    };
+
     try {
+      // Add to local state immediately
+      setComments([optimisticComment, ...comments]);
+      setNewComment("");
+
       await addDoc(collection(db, "comments"), {
         appId: id,
         userId: user.uid,
         userName: profile?.nickname || user.displayName || "익명",
-        content: newComment.trim(),
+        content: commentContent,
         createdAt: serverTimestamp()
       });
-      setNewComment("");
-      fetchComments();
+
       toast.success("댓글이 등록되었습니다.");
+      // Background fetch to sync ID and exact server timestamp
+      setTimeout(() => fetchComments(), 1000);
     } catch (error) {
       console.error("Error adding comment:", error);
       toast.error("댓글 등록에 실패했습니다.");
+      // Revert local change on error
+      setComments(comments.filter(c => c.id !== optimisticComment.id));
     } finally {
       setSubmittingComment(false);
     }
@@ -425,7 +468,7 @@ export default function AppDetailPage() {
                             <p className="font-bold text-slate-900 leading-tight">{comment.userName}</p>
                             <div className="flex items-center gap-1 text-[10px] text-slate-400">
                               <Clock className="h-3 w-3" />
-                              {comment.createdAt ? formatDistanceToNow(comment.createdAt.toDate(), { addSuffix: true, locale: ko }) : "방금 전"}
+                              {safeFormatDate(comment.createdAt)}
                             </div>
                           </div>
                         </div>

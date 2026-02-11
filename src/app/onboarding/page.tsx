@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { Loader2, MessageCircle } from "lucide-react";
 
 export default function OnboardingPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const [nickname, setNickname] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
@@ -33,6 +33,10 @@ export default function OnboardingPage() {
         nickname: nickname.trim(),
         updatedAt: new Date(),
       });
+
+      // Force local update
+      updateProfile({ nickname: nickname.trim() });
+
       toast.success("환영합니다! 가입이 완료되었습니다.");
       router.push("/dashboard");
     } catch (error) {
