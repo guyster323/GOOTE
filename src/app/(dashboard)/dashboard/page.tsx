@@ -56,27 +56,39 @@ export default function DashboardPage() {
 
       setStats(prev => ({
         ...prev,
-        registeredApps: snapshot.size,
+        registeredApps: apps.length,
         totalLikes: totalLikes,
         dailyParticipants: dailyParticipants,
       }));
 
-      // Fetch recent comments for user's apps
+      // Fetch recent comments for user's apps - WITHOUT REQUIRING INDEX
       if (apps.length > 0) {
-        const appIds = apps.map(app => app.id);
-        const q = query(
-          collection(db, "comments"),
-          where("appId", "in", appIds.slice(0, 10)),
-          orderBy("createdAt", "desc"),
-          limit(5)
-        );
-        const commentsSnap = await getDocs(q);
-        const comments = commentsSnap.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          appName: apps.find(a => a.id === doc.data().appId)?.name
-        }));
-        setRecentComments(comments);
+        try {
+          const appIds = apps.map(app => app.id);
+          // Firestore "in" queries support max 10 items
+          const q = query(
+            collection(db, "comments"),
+            where("appId", "in", appIds.slice(0, 10))
+          );
+          const commentsSnap = await getDocs(q);
+          const comments = commentsSnap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            appName: apps.find(a => a.id === doc.data().appId)?.name
+          }));
+
+          // Sort client-side to avoid index requirement
+          const sortedComments = comments.sort((a: any, b: any) => {
+            const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return timeB - timeA;
+          }).slice(0, 5);
+
+          setRecentComments(sortedComments);
+        } catch (error) {
+          console.error("Error fetching comments:", error);
+          setRecentComments([]);
+        }
       }
       setLoading(false);
     });

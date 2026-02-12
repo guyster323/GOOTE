@@ -3,8 +3,8 @@
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { doc, collection, query, where, onSnapshot, deleteDoc, updateDoc } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/lib/firebase";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { db, app as firebaseApp } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
-import { Loader2, ArrowLeft, Check, X, User, Settings, Info, Save } from "lucide-react";
+import { Loader2, ArrowLeft, Check, X, User, Settings, Info, Save, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -29,6 +29,7 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
   const [activeTesters, setActiveTesters] = useState<any[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [editApp, setEditApp] = useState<any>(null);
 
   const safeFormatDate = (timestamp: any) => {
@@ -71,7 +72,7 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
         };
 
         setApp(appInfo);
-        setEditApp(prev => prev ? prev : {
+        setEditApp((prev: any) => prev ? prev : {
           id: docSnap.id,
           ...data,
           minTesters: data.minTesters || 20,
@@ -131,7 +132,8 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
   const handleApprove = async (participationId: string) => {
     setProcessingId(participationId);
     try {
-      const approveTester = httpsCallable(functions, "approveTester");
+      const functionsInstance = getFunctions(firebaseApp, "us-central1");
+      const approveTester = httpsCallable(functionsInstance, "approveTester");
       await approveTester({ participationId });
       toast.success("테스터를 승인했습니다.");
     } catch (error) {
@@ -181,6 +183,35 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
       toast.error("설정 저장 중 오류가 발생했습니다.");
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleDeleteApp = async () => {
+    if (!confirm("정말로 이 앱을 삭제하시겠습니까? 이 작업은 되돌릴 수 없으며, 모든 참여 정보가 함께 삭제됩니다.")) {
+      return;
+    }
+
+    // Double check for safety
+    const appName = prompt(`삭제를 확인하려면 앱 이름 "${app.name}"을(를) 입력하세요.`);
+    if (appName !== app.name) {
+      toast.error("앱 이름이 일치하지 않습니다.");
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      // Use Cloud Function for safe deletion (bypasses complex Firestore rules)
+      // Explicitly specify region to avoid 404 errors (default is us-central1)
+      const functionsInstance = getFunctions(firebaseApp, "us-central1");
+      const deleteAppFunction = httpsCallable(functionsInstance, "deleteApp");
+      await deleteAppFunction({ appId });
+
+      toast.success("앱이 성공적으로 삭제되었습니다.");
+      router.push("/my-apps");
+    } catch (error) {
+      console.error("Error deleting app:", error);
+      toast.error("앱 삭제 중 오류가 발생했습니다.");
+      setDeleting(false);
     }
   };
 
@@ -447,7 +478,27 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-between items-center pt-6 border-t mt-8">
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-sm font-semibold text-red-600">위험 구역</h3>
+                    <p className="text-xs text-slate-500">앱을 삭제하면 모든 데이터가 영구적으로 제거됩니다.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleDeleteApp}
+                    disabled={deleting}
+                  >
+                    {deleting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    앱 삭제
+                  </Button>
+                </div>
+
+                <div className="flex justify-end border-t pt-6">
                   <Button type="submit" disabled={savingSettings}>
                     {savingSettings ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -82,7 +82,7 @@ function HomeContent() {
             <AppWindow className="h-7 w-7 text-primary" />
           </div>
           <h1 className="text-4xl font-black tracking-tighter text-white">
-            GOOTE <span className="text-xs text-slate-500 align-top ml-1 font-bold">v0.4</span>
+            GOOTE <span className="text-xs text-slate-500 align-top ml-1 font-bold">v0.5</span>
           </h1>
           <div className="flex items-center justify-center gap-2 text-slate-400 text-sm font-medium">
             <Sparkles className="h-4 w-4 text-yellow-500" />

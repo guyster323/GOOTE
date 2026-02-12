@@ -26,21 +26,21 @@ export default function AuthProvider({
         const unsubscribeProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
-            console.log("Profile data loaded for:", user.uid, !!data.nickname);
+            console.log("✅ Profile loaded for:", user.uid, "nickname:", data.nickname || "MISSING");
             setProfile(data as any);
           } else {
-            console.log("No profile document found for:", user.uid);
+            console.log("⚠️ No profile document found for:", user.uid, "- Will create on onboarding");
             setProfile(null);
             setIsLoading(false); // Only set loading false if no doc exists
           }
         }, (error) => {
-          console.error("Profile subscription error:", error);
+          console.error("❌ Profile subscription error:", error);
           setIsLoading(false);
         });
 
         return () => unsubscribeProfile();
       } else {
-        console.log("No user authenticated");
+        console.log("🚪 No user authenticated - clearing profile");
         setProfile(null);
         setIsLoading(false);
       }

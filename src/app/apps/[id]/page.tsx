@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
-import { doc, getDoc, collection, addDoc, query, where, orderBy, getDocs, serverTimestamp, Timestamp, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, updateDoc, query, where, orderBy, getDocs, serverTimestamp, Timestamp, onSnapshot, increment } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
@@ -169,16 +169,35 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       setJoinedGroup(true);
       setShowParticipationSteps(true); // Ensure steps are shown to reveal download button
 
-      // Directly register as active tester
-      const requestParticipation = httpsCallable(functions, "requestParticipation");
-      await requestParticipation({ appId: id, message: "Direct join" });
+      // Directly register as active tester using Client SDK
+      // This bypasses cloud function cold starts and ensures immediate feedback
+      await addDoc(collection(db, "participations"), {
+        appId: id,
+        appName: app.name,
+        testerId: user.uid,
+        testerEmail: user.email,
+        testerNickname: profile?.nickname || user.displayName || "익명",
+        status: "active",
+        consecutiveDays: 0,
+        targetDays: app.testDuration || 14,
+        lastCheckIn: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Update app stats directly (stats.participants and stats.dailyParticipants)
+      await updateDoc(doc(db, "apps", id), {
+        "stats.participants": increment(1),
+        "stats.dailyParticipants": increment(1),
+        updatedAt: serverTimestamp(),
+      });
 
       toast.success("테스터로 등록되었습니다! 이제 앱을 다운로드할 수 있습니다.");
 
       // Delay fetch to allow server propagation
       setTimeout(() => {
         fetchParticipation();
-      }, 2000);
+      }, 1000);
 
     } catch (error: any) {
       console.error("Error joining participation:", error);

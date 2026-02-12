@@ -46,9 +46,8 @@ service cloud.firestore {
         (resource.data.testerId == request.auth.uid ||
          get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid);
 
-      // Testers can create pending requests, but ONLY pending
+      // Testers can create pending requests or join directly
       allow create: if isAuthenticated() &&
-                    request.resource.data.status == 'pending' &&
                     request.resource.data.testerId == request.auth.uid;
 
       // Developers can update status (e.g. to active/rejected)

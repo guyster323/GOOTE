@@ -29,14 +29,32 @@ export default function OnboardingPage() {
     setIsSubmitting(true);
     try {
       const userRef = doc(db, "users", user.uid);
-      // Use setDoc with merge: true to create the document if it doesn't exist
+
+      // CRITICAL FIX: Create complete user document if it doesn't exist
       await setDoc(userRef, {
+        uid: user.uid,
+        email: user.email || "",
         nickname: nickname.trim(),
+        profileImage: user.photoURL || "",
+        role: "user",
+        dismissedGuides: [],
+        stats: {
+          appsRegistered: 0,
+          testsJoined: 0,
+          testsCompleted: 0,
+          totalLikes: 0,
+          totalConsecutiveDays: 0,
+        },
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
-      // Force local update
+      // Force local update immediately
       updateProfile({ nickname: nickname.trim() });
+
+      // CRITICAL FIX: Wait for Firestore onSnapshot to receive update before redirecting
+      // This prevents the race condition where OnboardingCheck runs before profile is updated
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       toast.success("환영합니다! 가입이 완료되었습니다.");
       router.push("/dashboard");

@@ -24,16 +24,23 @@ export default function OnboardingCheck({
       const isOnboardingPath = pathname === "/onboarding";
 
       if (!isOnboardingPath && !isPublicPath) {
-        // If profile is explicitly loaded and nickname is missing
-        // (If profile is null even when isLoading is false, it means user doc doesn't exist yet)
-        if (profile) {
-          if (!profile.nickname) {
+        // CRITICAL FIX: Add debounce to prevent race condition
+        // Wait a bit to ensure profile is fully loaded from Firestore
+        const timeoutId = setTimeout(() => {
+          // If profile is explicitly loaded and nickname is missing
+          if (profile) {
+            if (!profile.nickname || profile.nickname.trim() === "") {
+              console.log("Redirecting to onboarding: nickname missing");
+              router.push("/onboarding");
+            }
+          } else {
+            // No profile doc found at all for this user
+            console.log("Redirecting to onboarding: no profile document");
             router.push("/onboarding");
           }
-        } else {
-          // No profile doc found at all for this user
-          router.push("/onboarding");
-        }
+        }, 300); // 300ms debounce to allow onSnapshot to complete
+
+        return () => clearTimeout(timeoutId);
       }
     }
   }, [user, profile, isLoading, pathname, router]);

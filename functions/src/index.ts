@@ -161,6 +161,7 @@ export const onParticipationCreated = functions.firestore
       const appRef = db.collection("apps").doc(appId);
       batch.update(appRef, {
         "stats.participants": admin.firestore.FieldValue.increment(1),
+        "stats.dailyParticipants": admin.firestore.FieldValue.increment(1),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -302,6 +303,70 @@ export const requestParticipation = functions.runWith(runtimeOpts).https.onCall(
       throw error;
     }
     throw new functions.https.HttpsError("internal", "참여 요청 처리에 실패했습니다.");
+  }
+});
+
+/**
+ * Callable function to delete an app and its related data.
+ */
+export const deleteApp = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "로그인이 필요합니다.");
+  }
+
+  const { appId } = data;
+  const userId = context.auth.uid;
+
+  try {
+    // 1. Verify ownership
+    const appRef = db.collection("apps").doc(appId);
+    const appSnap = await appRef.get();
+
+    if (!appSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "앱을 찾을 수 없습니다.");
+    }
+
+    const appData = appSnap.data();
+    if (appData?.developerId !== userId) {
+      throw new functions.https.HttpsError("permission-denied", "삭제 권한이 없습니다.");
+    }
+
+    // 2. Delete all participations
+    const batch = db.batch();
+    const participationsSnap = await db.collection("participations").where("appId", "==", appId).get();
+
+    participationsSnap.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    // 3. Delete all comments
+    const commentsSnap = await db.collection("comments").where("appId", "==", appId).get();
+    commentsSnap.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    // 4. Delete the app document
+    batch.delete(appRef);
+
+    // 5. Decrement user's appsRegistered count
+    const userRef = db.collection("users").doc(userId);
+    // Note: Use batch.update but handle case where user doc might not exist (unlikely but safe)
+    // Actually batch.update requires the doc to exist.
+    batch.update(userRef, {
+        "stats.appsRegistered": admin.firestore.FieldValue.increment(-1),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    functions.logger.info(`App ${appId} deleted by ${userId}`);
+    return { success: true };
+  } catch (error: any) {
+    functions.logger.error("Error deleting app:", error);
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    throw new functions.https.HttpsError("internal", "앱 삭제 중 오류가 발생했습니다.");
   }
 });
 

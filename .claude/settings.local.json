@@ -29,7 +29,13 @@
       "Bash(git config:*)",
       "Bash(git -c credential.helper= push origin main)",
       "Bash(firebase functions:delete:*)",
-      "WebFetch(domain:claude.ai)"
+      "WebFetch(domain:claude.ai)",
+      "Bash(node:*)",
+      "Bash(npm install -D @playwright/test)",
+      "Bash(npx playwright test:*)",
+      "Bash(npx playwright install:*)",
+      "Bash(npm run dev)",
+      "WebFetch(domain:localhost)"
     ]
   }
 }
