@@ -1,12 +1,35 @@
+"use client";
+
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/hooks/use-auth";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace(`/?mode=login&redirect=${encodeURIComponent(pathname)}`);
+    }
+  }, [user, isLoading, pathname, router]);
+
+  if (isLoading || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <p className="text-sm font-semibold text-slate-500">인증 상태 확인 중...</p>
+      </div>
+    );
+  }
+
   return (
     <SidebarProvider>
       <AppSidebar />

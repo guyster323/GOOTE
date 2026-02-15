@@ -6,9 +6,10 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { AppWindow, Sparkles, ShieldCheck, Loader2, ListChecks } from "lucide-react";
-import { collection, query, where, getDocs, limit, orderBy } from "firebase/firestore";
+import { AppWindow, Sparkles, ShieldCheck, Loader2, ListChecks, HelpCircle } from "lucide-react";
+import { collection, query, getDocs, limit, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 function HomeContent() {
   const { user, isLoading } = useAuthStore();
@@ -81,8 +82,30 @@ function HomeContent() {
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-2xl mb-4">
             <AppWindow className="h-7 w-7 text-primary" />
           </div>
-          <h1 className="text-4xl font-black tracking-tighter text-white">
-            GOOTE <span className="text-xs text-slate-500 align-top ml-1 font-bold">v0.5</span>
+          <h1 className="text-4xl font-black tracking-tighter text-white inline-flex items-start justify-center gap-2">
+            <span>GOOTE</span>
+            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.6</span>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="v0.6 업데이트 내역 보기"
+                    className="mt-1 text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="center" className="max-w-xs bg-slate-900 text-slate-100 border border-slate-700 p-3">
+                  <p className="font-bold mb-1">v0.6 업데이트</p>
+                  <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed">
+                    <li>미로그인 사용자의 보호 URL 접근 차단 강화</li>
+                    <li>앱 등록 카테고리 드롭다운 배경 가독성 개선</li>
+                    <li>품질 게이트 기반 개발 가이드(AIOS 스타일) 반영</li>
+                  </ul>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </h1>
           <div className="flex items-center justify-center gap-2 text-slate-400 text-sm font-medium">
             <Sparkles className="h-4 w-4 text-yellow-500" />
@@ -198,3 +221,6 @@ export default function Home() {
     </Suspense>
   );
 }
+
+
+

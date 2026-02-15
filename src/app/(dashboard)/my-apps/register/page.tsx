@@ -353,11 +353,11 @@ export default function RegisterAppPage() {
                   <FormLabel className="text-slate-700 font-bold">카테고리</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <SelectTrigger className="h-12 border-slate-200">
+                      <SelectTrigger className="h-12 border-slate-200 bg-white">
                         <SelectValue placeholder="카테고리 선택" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent className="bg-white text-slate-900">
                       <SelectItem value="game">게임</SelectItem>
                       <SelectItem value="utility">유틸리티</SelectItem>
                       <SelectItem value="productivity">생산성</SelectItem>

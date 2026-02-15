@@ -4,7 +4,8 @@ import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouter, usePathname } from "next/navigation";
 
-const PUBLIC_PATHS = ["/apps"];
+const PUBLIC_PATH_PREFIXES = ["/apps"];
+const PUBLIC_PATHS = ["/"];
 
 export default function OnboardingCheck({
   children,
@@ -18,32 +19,36 @@ export default function OnboardingCheck({
   useEffect(() => {
     if (isLoading) return;
 
-    // Only redirect if everything is loaded
-    if (!isLoading && user) {
-      const isPublicPath = PUBLIC_PATHS.some(path => pathname.startsWith(path));
-      const isOnboardingPath = pathname === "/onboarding";
+    const isPublicPath =
+      PUBLIC_PATHS.includes(pathname) ||
+      PUBLIC_PATH_PREFIXES.some((path) => pathname.startsWith(path));
+    const isOnboardingPath = pathname === "/onboarding";
 
-      if (!isOnboardingPath && !isPublicPath) {
-        // CRITICAL FIX: Add debounce to prevent race condition
-        // Wait a bit to ensure profile is fully loaded from Firestore
-        const timeoutId = setTimeout(() => {
-          // If profile is explicitly loaded and nickname is missing
-          if (profile) {
-            if (!profile.nickname || profile.nickname.trim() === "") {
-              console.log("Redirecting to onboarding: nickname missing");
-              router.push("/onboarding");
-            }
-          } else {
-            // No profile doc found at all for this user
-            console.log("Redirecting to onboarding: no profile document");
+    if (!user && !isPublicPath) {
+      router.push(`/?mode=login&redirect=${encodeURIComponent(pathname)}`);
+      return;
+    }
+
+    if (user) {
+      if (isOnboardingPath || isPublicPath) return;
+
+      // Wait briefly so the profile subscription can settle before onboarding check.
+      const timeoutId = setTimeout(() => {
+        if (profile) {
+          if (!profile.nickname || profile.nickname.trim() === "") {
+            console.log("Redirecting to onboarding: nickname missing");
             router.push("/onboarding");
           }
-        }, 300); // 300ms debounce to allow onSnapshot to complete
+        } else {
+          console.log("Redirecting to onboarding: no profile document");
+          router.push("/onboarding");
+        }
+      }, 300);
 
-        return () => clearTimeout(timeoutId);
-      }
+      return () => clearTimeout(timeoutId);
     }
   }, [user, profile, isLoading, pathname, router]);
 
   return <>{children}</>;
 }
+
