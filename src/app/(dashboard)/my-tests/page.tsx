@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   collection,
   query,
@@ -36,6 +37,7 @@ export default function MyTestsPage() {
   const [loading, setLoading] = useState(true);
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
   const { user } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     if (!user) return;
@@ -83,6 +85,7 @@ export default function MyTestsPage() {
       const partRef = doc(db, "participations", participation.id);
       await updateDoc(partRef, {
         [`dailyChecks.${today}`]: true,
+        lastCheckIn: today,
         consecutiveDays: increment(1),
         updatedAt: serverTimestamp(),
       });
@@ -141,7 +144,19 @@ export default function MyTestsPage() {
             const isCheckedInToday = p.dailyChecks ? p.dailyChecks[todayStr] : false;
 
             return (
-              <Card key={p.id} className="flex flex-col">
+              <Card
+                key={p.id}
+                className="flex flex-col cursor-pointer transition-shadow hover:shadow-md"
+                role="button"
+                tabIndex={0}
+                onClick={() => router.push(`/apps/${p.appId}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    router.push(`/apps/${p.appId}`);
+                  }
+                }}
+              >
                 <CardHeader>
                   <CardTitle className="text-xl line-clamp-1">{p.appName}</CardTitle>
                 </CardHeader>
@@ -163,7 +178,10 @@ export default function MyTestsPage() {
                 <CardFooter>
                   <Button
                     className="w-full"
-                    onClick={() => handleCheckIn(p)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleCheckIn(p);
+                    }}
                     disabled={isCheckedInToday || checkingInId === p.id}
                     variant={isCheckedInToday ? "secondary" : "default"}
                   >
@@ -183,3 +201,4 @@ export default function MyTestsPage() {
     </div>
   );
 }
+

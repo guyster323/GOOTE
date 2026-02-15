@@ -763,8 +763,12 @@ export const dailyNudgeMailScheduler = functions.runWith(runtimeOpts).pubsub
 
       const promises = activeParticipationsSnapshot.docs.map(async (doc) => {
         const data = doc.data();
+        const hasCheckedToday =
+          data.lastCheckIn === today ||
+          Boolean(data.dailyChecks && data.dailyChecks[today]);
+
         // Check if already checked in today
-        if (data.lastCheckIn === today) return;
+        if (hasCheckedToday) return;
 
         const participationId = doc.id;
         const { testerEmail, testerNickname, appId, appName } = data;
@@ -844,3 +848,4 @@ export const resetDailyStats = functions.runWith(runtimeOpts).pubsub
       return null;
     }
   });
+

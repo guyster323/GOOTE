@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, Suspense, useState } from "react";
+import { useEffect, Suspense, useRef, useState } from "react";
 import { loginWithGoogle } from "@/lib/auth";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -18,6 +18,8 @@ function HomeContent() {
   const redirect = searchParams.get("redirect");
   const [testApps, setTestApps] = useState<any[]>([]);
   const [loadingApps, setLoadingApps] = useState(true);
+  const [releaseTooltipOpen, setReleaseTooltipOpen] = useState(false);
+  const releaseTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!isLoading && user) {
@@ -49,6 +51,27 @@ function HomeContent() {
     fetchTestApps();
   }, []);
 
+
+  useEffect(() => {
+    return () => {
+      if (releaseTooltipTimerRef.current) {
+        clearTimeout(releaseTooltipTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleReleaseNoteClick = () => {
+    setReleaseTooltipOpen(true);
+
+    if (releaseTooltipTimerRef.current) {
+      clearTimeout(releaseTooltipTimerRef.current);
+    }
+
+    releaseTooltipTimerRef.current = setTimeout(() => {
+      setReleaseTooltipOpen(false);
+      releaseTooltipTimerRef.current = null;
+    }, 5000);
+  };
   const handleLogin = async () => {
     try {
       await loginWithGoogle();
@@ -85,13 +108,14 @@ function HomeContent() {
           <h1 className="text-4xl font-black tracking-tighter text-white inline-flex items-start justify-center gap-2">
             <span>GOOTE</span>
             <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.6</span>
-            <TooltipProvider>
-              <Tooltip>
+            <TooltipProvider delayDuration={0}>
+              <Tooltip open={releaseTooltipOpen} onOpenChange={setReleaseTooltipOpen}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     aria-label="v0.6 업데이트 내역 보기"
                     className="mt-1 text-slate-500 hover:text-slate-300 transition-colors"
+                    onClick={handleReleaseNoteClick}
                   >
                     <HelpCircle className="h-4 w-4" />
                   </button>
@@ -221,6 +245,4 @@ export default function Home() {
     </Suspense>
   );
 }
-
-
 
