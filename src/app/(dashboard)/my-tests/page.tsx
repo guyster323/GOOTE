@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Loader2, CheckCircle2, Calendar } from "lucide-react";
 import { format } from "date-fns";
+import { buildDailyTrackUrl } from "@/lib/daily-track";
 
 interface Participation {
   id: string;
@@ -78,7 +79,7 @@ export default function MyTestsPage() {
 
     setCheckingInId(participation.id);
     try {
-      const trackUrl = `https://goote-f48d8.web.app/api/track-daily?pid=${encodeURIComponent(participation.id)}&type=android`;
+      const trackUrl = buildDailyTrackUrl(participation.id, "android");
       const opened = window.open(trackUrl, "_blank", "noopener,noreferrer");
 
       if (!opened) {
@@ -195,4 +196,7 @@ export default function MyTestsPage() {
     </div>
   );
 }
+
+
+
 

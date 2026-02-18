@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
+import { buildDailyTrackUrl } from "@/lib/daily-track";
 
 export default function AppDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -144,7 +145,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       return;
     }
 
-    const trackUrl = `https://goote-f48d8.web.app/api/track-daily?pid=${encodeURIComponent(participation.id)}&type=${type}`;
+    const trackUrl = buildDailyTrackUrl(participation.id, type);
     window.open(trackUrl, "_blank");
   };
 
@@ -522,3 +523,6 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     </div>
   );
 }
+
+
+
