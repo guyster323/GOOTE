@@ -2,15 +2,14 @@
 
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
-import { doc, getDoc, collection, addDoc, updateDoc, query, where, orderBy, getDocs, serverTimestamp, Timestamp, onSnapshot, increment } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/lib/firebase";
+import { doc, collection, addDoc, updateDoc, query, where, getDocs, serverTimestamp, Timestamp, onSnapshot, increment } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Users, Calendar, ExternalLink, Mail, MessageSquare, Send, User, Clock, CheckCircle2, Smartphone, Globe, AlertCircle } from "lucide-react";
+import { Loader2, Users, Calendar, ExternalLink, MessageSquare, Send, User, Clock, CheckCircle2, Smartphone, Globe } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDistanceToNow } from "date-fns";
@@ -27,7 +26,6 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
-  const [joinedGroup, setJoinedGroup] = useState(false);
   const [showParticipationSteps, setShowParticipationSteps] = useState(false);
   const [participation, setParticipation] = useState<any>(null);
   const [checkingParticipation, setCheckingParticipation] = useState(false);
@@ -89,10 +87,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       if (!querySnapshot.empty) {
         const docSnap = querySnapshot.docs[0];
         const data = docSnap.data();
-        setParticipation({ id: docSnap.id, ...data });
-        if (data.status === "active" || data.status === "completed") {
-          setJoinedGroup(true);
-        }
+        setParticipation({ id: docSnap.id, ...data });
       } else {
         setParticipation(null);
       }
@@ -135,9 +130,22 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       if (!timestamp) return '방금 전';
       const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
       return formatDistanceToNow(date, { addSuffix: true, locale: ko });
-    } catch (e) {
+    } catch {
       return '날짜 정보 없음';
     }
+  };
+
+  const openTrackedDailyLink = (type: "android" | "web") => {
+    const directLink = type === "web" ? app?.webParticipationLink : app?.androidParticipationLink;
+    if (!directLink) return;
+
+    if (!participation?.id) {
+      window.open(directLink, "_blank");
+      return;
+    }
+
+    const trackUrl = `https://goote-f48d8.web.app/api/track-daily?pid=${encodeURIComponent(participation.id)}&type=${type}`;
+    window.open(trackUrl, "_blank");
   };
 
   const handleJoinRequest = async () => {
@@ -165,8 +173,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
       };
-      setParticipation(optimisticParticipation);
-      setJoinedGroup(true);
+      setParticipation(optimisticParticipation);
       setShowParticipationSteps(true); // Ensure steps are shown to reveal download button
 
       // Directly register as active tester using Client SDK
@@ -353,7 +360,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
                         {app.androidParticipationLink ? (
                           <Button
                             className="h-14 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
-                            onClick={() => window.open(app.androidParticipationLink, '_blank')}
+                            onClick={() => openTrackedDailyLink("android")}
                           >
                             <Smartphone className="mr-2 h-5 w-5" />
                             Android 참여 링크
@@ -365,7 +372,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
                           <Button
                             variant="outline"
                             className="h-14 rounded-xl border-slate-200 hover:bg-slate-50 font-bold"
-                            onClick={() => window.open(app.webParticipationLink, '_blank')}
+                            onClick={() => openTrackedDailyLink("web")}
                           >
                             <Globe className="mr-2 h-5 w-5" />
                             Web 참여 링크

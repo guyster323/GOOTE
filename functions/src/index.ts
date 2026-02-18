@@ -12,6 +12,9 @@ const runtimeOpts: functions.RuntimeOptions = {
   memory: "512MB"
 };
 
+const getTodayKstDateString = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+
 /**
  * Triggered when a new user is created via Firebase Auth.
  * Initializes the user document in the 'users' collection.
@@ -67,7 +70,7 @@ export const api = functions.runWith(runtimeOpts).https.onRequest(async (req, re
     }
 
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = getTodayKstDateString();
       const partRef = db.collection("participations").doc(pid as string);
       const partSnap = await partRef.get();
 
@@ -80,8 +83,13 @@ export const api = functions.runWith(runtimeOpts).https.onRequest(async (req, re
       const appId = data?.appId;
       const type = req.query.type as string; // 'android' or 'web'
 
-      if (data?.lastCheckIn !== today) {
+      const hasCheckedToday =
+        data?.lastCheckIn === today ||
+        Boolean(data?.dailyChecks && data.dailyChecks[today]);
+
+      if (!hasCheckedToday) {
         await partRef.update({
+          [`dailyChecks.${today}`]: true,
           lastCheckIn: today,
           consecutiveDays: admin.firestore.FieldValue.increment(1),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -681,6 +689,11 @@ export const dailyTaskMailScheduler = functions.runWith(runtimeOpts).pubsub
         const participationId = doc.id;
         const { testerEmail, testerNickname, appId, appName } = data;
 
+        if (!testerEmail) {
+          functions.logger.warn("Skipping daily task mail: testerEmail missing", { participationId });
+          return null;
+        }
+
         const appSnap = await db.collection("apps").doc(appId).get();
         const appData = appSnap.data();
 
@@ -729,7 +742,13 @@ export const dailyTaskMailScheduler = functions.runWith(runtimeOpts).pubsub
         return sendGmail({ to: testerEmail, subject, html, credentials });
       });
 
-      await Promise.all(promises);
+      const results = await Promise.allSettled(promises);
+      const failed = results.filter((result) => result.status === "rejected");
+      functions.logger.info("dailyTaskMailScheduler finished", {
+        total: results.length,
+        success: results.length - failed.length,
+        failed: failed.length,
+      });
       return null;
     } catch (error) {
       functions.logger.error("Error in dailyTaskMailScheduler", error);
@@ -748,7 +767,7 @@ export const dailyNudgeMailScheduler = functions.runWith(runtimeOpts).pubsub
     functions.logger.info("Starting 17:30 daily nudge mail scheduler");
 
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = getTodayKstDateString();
       const activeParticipationsSnapshot = await db
         .collection("participations")
         .where("status", "==", "active")
@@ -768,10 +787,16 @@ export const dailyNudgeMailScheduler = functions.runWith(runtimeOpts).pubsub
           Boolean(data.dailyChecks && data.dailyChecks[today]);
 
         // Check if already checked in today
-        if (hasCheckedToday) return;
+        if (hasCheckedToday) return null;
 
         const participationId = doc.id;
         const { testerEmail, testerNickname, appId, appName } = data;
+
+        if (!testerEmail) {
+          functions.logger.warn("Skipping daily nudge mail: testerEmail missing", { participationId });
+          return null;
+        }
+
         const appSnap = await db.collection("apps").doc(appId).get();
         const appData = appSnap.data();
 
@@ -815,7 +840,13 @@ export const dailyNudgeMailScheduler = functions.runWith(runtimeOpts).pubsub
         return sendGmail({ to: testerEmail, subject, html, credentials });
       });
 
-      await Promise.all(promises);
+      const results = await Promise.allSettled(promises);
+      const failed = results.filter((result) => result.status === "rejected");
+      functions.logger.info("dailyNudgeMailScheduler finished", {
+        total: results.length,
+        success: results.length - failed.length,
+        failed: failed.length,
+      });
       return null;
     } catch (error) {
       functions.logger.error("Error in dailyNudgeMailScheduler", error);

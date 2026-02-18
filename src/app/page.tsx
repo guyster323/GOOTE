@@ -107,13 +107,13 @@ function HomeContent() {
           </div>
           <h1 className="text-4xl font-black tracking-tighter text-white inline-flex items-start justify-center gap-2">
             <span>GOOTE</span>
-            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.6</span>
+            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.7</span>
             <TooltipProvider delayDuration={0}>
               <Tooltip open={releaseTooltipOpen} onOpenChange={setReleaseTooltipOpen}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    aria-label="v0.6 업데이트 내역 보기"
+                    aria-label="v0.7 업데이트 내역 보기"
                     className="mt-1 text-slate-500 hover:text-slate-300 transition-colors"
                     onClick={handleReleaseNoteClick}
                   >
@@ -121,11 +121,11 @@ function HomeContent() {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="center" className="max-w-xs bg-slate-900 text-slate-100 border border-slate-700 p-3">
-                  <p className="font-bold mb-1">v0.6 업데이트</p>
+                  <p className="font-bold mb-1">v0.7 업데이트</p>
                   <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed">
-                    <li>미로그인 사용자의 보호 URL 접근 차단 강화</li>
-                    <li>앱 등록 카테고리 드롭다운 배경 가독성 개선</li>
-                    <li>품질 게이트 기반 개발 가이드(AIOS 스타일) 반영</li>
+                    <li>앱 상세의 Android/Web 참여 링크 클릭이 오늘 참여 완료 카운트로 반영</li>
+                    <li>참여 중인 테스트의 오늘의 출석 체크가 Android 참여 링크를 열고 동일 카운트 반영</li>
+                    <li>일일 메일 스케줄러 안정성 개선(allSettled, 누락 이메일 가드, KST 날짜 기준 통일)</li>
                   </ul>
                 </TooltipContent>
               </Tooltip>

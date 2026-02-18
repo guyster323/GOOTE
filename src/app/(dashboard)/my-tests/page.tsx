@@ -7,10 +7,6 @@ import {
   query,
   where,
   onSnapshot,
-  doc,
-  updateDoc,
-  serverTimestamp,
-  increment,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
@@ -82,16 +78,14 @@ export default function MyTestsPage() {
 
     setCheckingInId(participation.id);
     try {
-      const partRef = doc(db, "participations", participation.id);
-      await updateDoc(partRef, {
-        [`dailyChecks.${today}`]: true,
-        lastCheckIn: today,
-        consecutiveDays: increment(1),
-        updatedAt: serverTimestamp(),
-      });
+      const trackUrl = `https://goote-f48d8.web.app/api/track-daily?pid=${encodeURIComponent(participation.id)}&type=android`;
+      const opened = window.open(trackUrl, "_blank", "noopener,noreferrer");
 
-      toast.success(`${participation.appName} 출석 체크 성공!`);
-      // No need to fetch manually, onSnapshot will handle it
+      if (!opened) {
+        window.location.href = trackUrl;
+      }
+
+      toast.success(`${participation.appName} Android 링크를 열었습니다. 실행 시 오늘 참여가 반영됩니다.`);
     } catch (error) {
       console.error("Error checking in:", error);
       toast.error("출석 체크에 실패했습니다. 다시 시도해주세요.");
