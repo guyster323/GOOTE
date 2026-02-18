@@ -23,8 +23,6 @@ test.describe('GOOTE Platform Core Features', () => {
 
     // 2. 앱 정보 로드 확인 (앱이 없으면 "앱을 찾을 수 없습니다" 토스트 발생)
     // 여기서는 에러 처리가 잘 되는지 확인
-    const toast = page.locator('.sonner-toast'); // Sonner 토스트 클래스 가정
-    // await expect(toast).toContainText('앱을 찾을 수 없습니다');
   });
 
 });

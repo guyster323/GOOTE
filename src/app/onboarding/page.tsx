@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { Loader2, MessageCircle } from "lucide-react";
 
 export default function OnboardingPage() {
-  const { user, profile, updateProfile } = useAuth();
+  const { user, updateProfile } = useAuth();
   const [nickname, setNickname] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();

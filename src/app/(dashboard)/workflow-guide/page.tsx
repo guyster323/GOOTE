@@ -3,16 +3,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Users,
   Settings,
   MousePointer2,
   Mail,
   CheckCircle2,
   ArrowLeft,
-  ChevronRight,
   Info
 } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
 

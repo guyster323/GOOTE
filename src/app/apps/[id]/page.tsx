@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { doc, collection, addDoc, updateDoc, query, where, getDocs, serverTimestamp, Timestamp, onSnapshot, increment } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { doc, collection, addDoc, query, where, getDocs, serverTimestamp, Timestamp, onSnapshot } from "firebase/firestore";
+import { db, functions } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
-import { buildDailyTrackUrl } from "@/lib/daily-track";
+import { createDailyTrackUrl } from "@/lib/daily-track";
 
 export default function AppDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -30,6 +31,54 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
   const [showParticipationSteps, setShowParticipationSteps] = useState(false);
   const [participation, setParticipation] = useState<any>(null);
   const [checkingParticipation, setCheckingParticipation] = useState(false);
+
+  const fetchParticipation = useCallback(async () => {
+    if (!user || !id) return;
+    setCheckingParticipation(true);
+    try {
+      const q = query(
+        collection(db, "participations"),
+        where("appId", "==", id),
+        where("testerId", "==", user.uid)
+      );
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        const docSnap = querySnapshot.docs[0];
+        const data = docSnap.data();
+        setParticipation({ id: docSnap.id, ...data });
+      } else {
+        setParticipation(null);
+      }
+    } catch (error) {
+      console.error("Error fetching participation:", error);
+    } finally {
+      setCheckingParticipation(false);
+    }
+  }, [id, user]);
+
+  const fetchComments = useCallback(async () => {
+    try {
+      const q = query(
+        collection(db, "comments"),
+        where("appId", "==", id)
+      );
+      const querySnapshot = await getDocs(q);
+      const fetchedComments = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      const sortedComments = fetchedComments.sort((a: any, b: any) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return timeB - timeA;
+      });
+
+      setComments(sortedComments);
+    } catch (error) {
+      console.error("Error fetching comments:", error);
+    }
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
@@ -62,7 +111,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     fetchComments();
 
     return () => unsubscribeApp();
-  }, [id, router]);
+  }, [id, router, fetchComments]);
 
   useEffect(() => {
     if (id && user) {
@@ -70,60 +119,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     } else {
       setParticipation(null);
     }
-  }, [id, user]);
-
-  // Remove the old fetchApp function as it's replaced by onSnapshot
-  // Keep fetchParticipation and fetchComments as they are for now
-
-  const fetchParticipation = async () => {
-    if (!user || !id) return;
-    setCheckingParticipation(true);
-    try {
-      const q = query(
-        collection(db, "participations"),
-        where("appId", "==", id),
-        where("testerId", "==", user.uid)
-      );
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        const docSnap = querySnapshot.docs[0];
-        const data = docSnap.data();
-        setParticipation({ id: docSnap.id, ...data });
-      } else {
-        setParticipation(null);
-      }
-    } catch (error) {
-      console.error("Error fetching participation:", error);
-    } finally {
-      setCheckingParticipation(false);
-    }
-  };
-
-  const fetchComments = async () => {
-    try {
-      // Use simpler query to avoid index requirement during initial setup
-      const q = query(
-        collection(db, "comments"),
-        where("appId", "==", id)
-      );
-      const querySnapshot = await getDocs(q);
-      const fetchedComments = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      // Sort client-side
-      const sortedComments = fetchedComments.sort((a: any, b: any) => {
-        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
-        return timeB - timeA;
-      });
-
-      setComments(sortedComments);
-    } catch (error) {
-      console.error("Error fetching comments:", error);
-    }
-  };
+  }, [id, user, fetchParticipation]);
 
   // Safe date formatter
   const safeFormatDate = (timestamp: any) => {
@@ -136,17 +132,22 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     }
   };
 
-  const openTrackedDailyLink = (type: "android" | "web") => {
+  const openTrackedDailyLink = async (type: "android" | "web") => {
     const directLink = type === "web" ? app?.webParticipationLink : app?.androidParticipationLink;
     if (!directLink) return;
 
-    if (!participation?.id) {
-      window.open(directLink, "_blank");
-      return;
-    }
+    try {
+      if (!participation?.id) {
+        window.open(directLink, "_blank");
+        return;
+      }
 
-    const trackUrl = buildDailyTrackUrl(participation.id, type);
-    window.open(trackUrl, "_blank");
+      const trackUrl = await createDailyTrackUrl(participation.id, type);
+      window.open(trackUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("Error opening tracked daily link:", error);
+      window.open(directLink, "_blank", "noopener,noreferrer");
+    }
   };
 
   const handleJoinRequest = async () => {
@@ -177,28 +178,8 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       setParticipation(optimisticParticipation);
       setShowParticipationSteps(true); // Ensure steps are shown to reveal download button
 
-      // Directly register as active tester using Client SDK
-      // This bypasses cloud function cold starts and ensures immediate feedback
-      await addDoc(collection(db, "participations"), {
-        appId: id,
-        appName: app.name,
-        testerId: user.uid,
-        testerEmail: user.email,
-        testerNickname: profile?.nickname || user.displayName || "익명",
-        status: "active",
-        consecutiveDays: 0,
-        targetDays: app.testDuration || 14,
-        lastCheckIn: null,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      // Update app stats directly (stats.participants and stats.dailyParticipants)
-      await updateDoc(doc(db, "apps", id), {
-        "stats.participants": increment(1),
-        "stats.dailyParticipants": increment(1),
-        updatedAt: serverTimestamp(),
-      });
+      const requestParticipation = httpsCallable(functions, "requestParticipation");
+      await requestParticipation({ appId: id });
 
       toast.success("테스터로 등록되었습니다! 이제 앱을 다운로드할 수 있습니다.");
 

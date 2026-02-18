@@ -33,7 +33,8 @@ service cloud.firestore {
     // Apps
     match /apps/{appId} {
       allow read: if true;
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.developerId == request.auth.uid;
       allow update: if isAuthenticated() &&
         (resource.data.developerId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() &&
@@ -46,20 +47,20 @@ service cloud.firestore {
         (resource.data.testerId == request.auth.uid ||
          get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid);
 
-      // Testers can create pending requests or join directly
-      allow create: if isAuthenticated() &&
-                    request.resource.data.testerId == request.auth.uid;
+      // Participation create is server-only (Cloud Functions callable)
+      allow create: if false;
 
-      // Developers can update status (e.g. to active/rejected)
-      // Testers can update specific fields if needed (e.g. check-in)
+      // Restrict updates to app owner/admin only
       allow update: if isAuthenticated() && (
-        (resource.data.testerId == request.auth.uid && request.resource.data.status == resource.data.status) ||
-        (get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid)
+        get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid ||
+        isAdmin()
       );
 
-      // Developers can delete requests (reject)
-      allow delete: if isAuthenticated() &&
-        get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid;
+      // Developers/admin can delete requests
+      allow delete: if isAuthenticated() && (
+        get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid ||
+        isAdmin()
+      );
     }
 
     // Likes

@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
-import { Loader2, ArrowLeft, Check, X, User, Settings, Info, Save, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, Check, User, Settings, Info, Save, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -39,7 +39,7 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
       // Check if date is valid
       if (isNaN(date.getTime())) return '날짜 오류';
       return formatDistanceToNow(date, { addSuffix: true, locale: ko });
-    } catch (e) {
+    } catch {
       return '날짜 정보 없음';
     }
   };

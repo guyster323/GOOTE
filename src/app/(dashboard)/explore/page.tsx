@@ -1,19 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  serverTimestamp,
-  doc,
-  updateDoc,
-  increment,
-} from "firebase/firestore";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,10 +26,8 @@ interface App {
 export default function ExplorePage() {
   const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
-  const [joiningId, setJoiningId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const { user } = useAuth();
 
   useEffect(() => {
     fetchApps();
@@ -69,67 +56,6 @@ export default function ExplorePage() {
     const matchesCategory = categoryFilter === "all" || app.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
-
-  const handleJoinTest = async (app: App) => {
-    if (!user) {
-      toast.error("테스트에 참여하려면 로그인이 필요합니다.");
-      return;
-    }
-
-    setJoiningId(app.id);
-    try {
-      // 1. Check if already participating
-      const q = query(
-        collection(db, "participations"),
-        where("appId", "==", app.id),
-        where("testerId", "==", user.uid),
-        where("status", "==", "active")
-      );
-      const existing = await getDocs(q);
-
-      if (!existing.empty) {
-        toast.info("이미 이 앱의 테스트에 참여하고 있습니다!");
-        return;
-      }
-
-      // 2. Create participation document
-      await addDoc(collection(db, "participations"), {
-        appId: app.id,
-        appName: app.name,
-        testerId: user.uid,
-        testerNickname: user.displayName || user.email,
-        testerEmail: user.email,
-        startDate: serverTimestamp(),
-        targetDays: app.testDuration,
-        dailyChecks: {},
-        consecutiveDays: 0,
-        status: "active",
-        emailOptOut: false,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      // 3. Update app participant count
-      const appRef = doc(db, "apps", app.id);
-      await updateDoc(appRef, {
-        "stats.participants": increment(1),
-        updatedAt: serverTimestamp(),
-      });
-
-      toast.success(`${app.name} 테스트에 참여했습니다!`);
-
-      // Refresh apps to update count
-      fetchApps();
-
-      // Open participation link in new tab
-      window.open(app.participationLink, "_blank");
-    } catch (error) {
-      console.error("Error joining test:", error);
-      toast.error("테스트 참여에 실패했습니다. 다시 시도해주세요.");
-    } finally {
-      setJoiningId(null);
-    }
-  };
 
   if (loading) {
     return (

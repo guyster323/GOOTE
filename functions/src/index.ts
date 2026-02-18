@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import { sendGmail } from "./utils/gmail";
+import { randomBytes } from "crypto";
 
 admin.initializeApp();
 
@@ -14,6 +15,29 @@ const runtimeOpts: functions.RuntimeOptions = {
 
 const getTodayKstDateString = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+
+
+const getProjectId = () => process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "goote-f48d8";
+const getApiBaseUrl = () => `https://us-central1-${getProjectId()}.cloudfunctions.net/api`;
+const buildTrackDailyLink = (participationId: string, type: "android" | "web", token: string) =>
+  `${getApiBaseUrl()}/track-daily?pid=${encodeURIComponent(participationId)}&type=${type}&t=${encodeURIComponent(token)}`;
+
+const ensureDailyTrackToken = async (
+  participationRef: FirebaseFirestore.DocumentReference,
+  data: FirebaseFirestore.DocumentData | undefined
+) => {
+  const existingToken = typeof data?.dailyTrackToken === "string" ? data.dailyTrackToken : "";
+  if (existingToken) {
+    return existingToken;
+  }
+
+  const newToken = randomBytes(24).toString("hex");
+  await participationRef.update({
+    dailyTrackToken: newToken,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return newToken;
+};
 
 /**
  * Triggered when a new user is created via Firebase Auth.
@@ -63,15 +87,17 @@ export const api = functions.runWith(runtimeOpts).https.onRequest(async (req, re
       res.redirect("https://goote-f48d8.web.app/dashboard");
     }
   } else if (path === "/track-daily") {
-    const { pid } = req.query;
-    if (!pid) {
-      res.status(400).send("Missing pid");
+    const { pid, t } = req.query;
+    const type = req.query.type === "web" ? "web" : "android";
+
+    if (!pid || !t || typeof pid !== "string" || typeof t !== "string") {
+      res.status(400).send("Missing pid or token");
       return;
     }
 
     try {
       const today = getTodayKstDateString();
-      const partRef = db.collection("participations").doc(pid as string);
+      const partRef = db.collection("participations").doc(pid);
       const partSnap = await partRef.get();
 
       if (!partSnap.exists) {
@@ -80,12 +106,15 @@ export const api = functions.runWith(runtimeOpts).https.onRequest(async (req, re
       }
 
       const data = partSnap.data();
-      const appId = data?.appId;
-      const type = req.query.type as string; // 'android' or 'web'
+      if (!data?.dailyTrackToken || data.dailyTrackToken !== t) {
+        res.status(403).send("Invalid track token");
+        return;
+      }
 
+      const appId = data.appId as string | undefined;
       const hasCheckedToday =
-        data?.lastCheckIn === today ||
-        Boolean(data?.dailyChecks && data.dailyChecks[today]);
+        data.lastCheckIn === today ||
+        Boolean(data.dailyChecks && data.dailyChecks[today]);
 
       if (!hasCheckedToday) {
         await partRef.update({
@@ -95,17 +124,15 @@ export const api = functions.runWith(runtimeOpts).https.onRequest(async (req, re
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        // Also increment app's dailyParticipants
         if (appId) {
           await db.collection("apps").doc(appId).update({
-            "stats.dailyParticipants": admin.firestore.FieldValue.increment(1)
+            "stats.dailyParticipants": admin.firestore.FieldValue.increment(1),
           });
         }
       }
 
-      // Redirect to the actual testing link
-      const appSnap = await db.collection("apps").doc(appId).get();
-      const appData = appSnap.data();
+      const appSnap = appId ? await db.collection("apps").doc(appId).get() : null;
+      const appData = appSnap?.data();
       const redirectUrl = type === "web"
         ? appData?.webParticipationLink
         : appData?.androidParticipationLink;
@@ -165,11 +192,10 @@ export const onParticipationCreated = functions.firestore
     try {
       const batch = db.batch();
 
-      // 1. Increment app's participants stats
+      // 1. Increment app's total participants stats
       const appRef = db.collection("apps").doc(appId);
       batch.update(appRef, {
         "stats.participants": admin.firestore.FieldValue.increment(1),
-        "stats.dailyParticipants": admin.firestore.FieldValue.increment(1),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -181,6 +207,7 @@ export const onParticipationCreated = functions.firestore
       });
 
       await batch.commit();
+      await ensureDailyTrackToken(snapshot.ref, data);
       functions.logger.info(`Participation initialized for App: ${appId}, Tester: ${testerId}`);
     } catch (error) {
       functions.logger.error(`Error initializing participation for ID: ${context.params.participationId}`, error);
@@ -213,34 +240,34 @@ export const requestParticipation = functions.runWith(runtimeOpts).https.onCall(
     const developerId = appData?.developerId;
     const testerData = testerSnap.data();
 
-    // Check if already participating or pending
-    const participationQuery = await db.collection("participations")
-      .where("appId", "==", appId)
-      .where("testerId", "==", testerId)
-      .get();
+    // Deterministic participation document ID prevents duplicate rows per app/tester pair
+    const participationId = `${appId}_${testerId}`;
+    const participationRef = db.collection("participations").doc(participationId);
 
-    if (!participationQuery.empty) {
-      const status = participationQuery.docs[0].data().status;
-      if (status === "active" || status === "completed") {
-        throw new functions.https.HttpsError("already-exists", "이미 참여 중인 앱입니다.");
-      } else if (status === "pending") {
+    await db.runTransaction(async (tx) => {
+      const existing = await tx.get(participationRef);
+      if (existing.exists) {
+        const status = existing.data()?.status;
+        if (status === "active" || status === "completed") {
+          throw new functions.https.HttpsError("already-exists", "이미 참여 중인 앱입니다.");
+        }
         throw new functions.https.HttpsError("already-exists", "이미 참여 요청을 보냈습니다.");
       }
-    }
 
-    // Create participation directly as active
-    await db.collection("participations").add({
-      appId,
-      appName: appData?.name,
-      testerId,
-      testerEmail: testerData?.email,
-      testerNickname: testerData?.nickname,
-      status: "active",
-      consecutiveDays: 0,
-      targetDays: appData?.testDuration || 14,
-      lastCheckIn: null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      tx.create(participationRef, {
+        appId,
+        appName: appData?.name,
+        testerId,
+        testerEmail: testerData?.email,
+        testerNickname: testerData?.nickname,
+        status: "active",
+        dailyTrackToken: randomBytes(24).toString("hex"),
+        consecutiveDays: 0,
+        targetDays: appData?.testDuration || 14,
+        lastCheckIn: null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
 
     // Get developer info for email
@@ -312,6 +339,39 @@ export const requestParticipation = functions.runWith(runtimeOpts).https.onCall(
     }
     throw new functions.https.HttpsError("internal", "참여 요청 처리에 실패했습니다.");
   }
+});
+
+/**
+ * Callable function to create a signed daily tracking link for the authenticated tester.
+ */
+export const createDailyTrackLink = functions.runWith(runtimeOpts).https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "로그인이 필요합니다.");
+  }
+
+  const participationId = data?.participationId as string | undefined;
+  const type = data?.type === "web" ? "web" : data?.type === "android" ? "android" : undefined;
+
+  if (!participationId || !type) {
+    throw new functions.https.HttpsError("invalid-argument", "참여 ID와 타입(android/web)이 필요합니다.");
+  }
+
+  const participationRef = db.collection("participations").doc(participationId);
+  const participationSnap = await participationRef.get();
+
+  if (!participationSnap.exists) {
+    throw new functions.https.HttpsError("not-found", "참여 정보를 찾을 수 없습니다.");
+  }
+
+  const participation = participationSnap.data();
+  if (participation?.testerId !== context.auth.uid) {
+    throw new functions.https.HttpsError("permission-denied", "해당 참여 링크를 생성할 권한이 없습니다.");
+  }
+
+  const token = await ensureDailyTrackToken(participationRef, participation);
+  const url = buildTrackDailyLink(participationId, type, token);
+
+  return { url };
 });
 
 /**
@@ -698,8 +758,9 @@ export const dailyTaskMailScheduler = functions.runWith(runtimeOpts).pubsub
         const appData = appSnap.data();
 
         // Daily tracking links
-        const trackLinkAndroid = `https://goote-f48d8.web.app/api/track-daily?pid=${participationId}&type=android`;
-        const trackLinkWeb = `https://goote-f48d8.web.app/api/track-daily?pid=${participationId}&type=web`;
+        const token = await ensureDailyTrackToken(doc.ref, data);
+        const trackLinkAndroid = buildTrackDailyLink(participationId, "android", token);
+        const trackLinkWeb = buildTrackDailyLink(participationId, "web", token);
 
         const subject = `[GOOTE] 오늘 ${appName} 앱을 실행하고 참여를 인증해주세요!`;
         const html = `
@@ -801,8 +862,9 @@ export const dailyNudgeMailScheduler = functions.runWith(runtimeOpts).pubsub
         const appData = appSnap.data();
 
         // Daily tracking links
-        const trackLinkAndroid = `https://goote-f48d8.web.app/api/track-daily?pid=${participationId}&type=android`;
-        const trackLinkWeb = `https://goote-f48d8.web.app/api/track-daily?pid=${participationId}&type=web`;
+        const token = await ensureDailyTrackToken(doc.ref, data);
+        const trackLinkAndroid = buildTrackDailyLink(participationId, "android", token);
+        const trackLinkWeb = buildTrackDailyLink(participationId, "web", token);
 
         const subject = `[GOOTE] 아직 ${appName} 참여 인증을 하지 않으셨네요! (마감 임박)`;
         const html = `

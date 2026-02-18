@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -39,7 +39,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { HelpCircle, Globe, Users, Info, ExternalLink } from "lucide-react";
+import { HelpCircle, Globe, Users, ExternalLink } from "lucide-react";
 
 const formSchema = z.object({
   name: z.string().min(1, "앱 이름은 필수입니다"),
@@ -83,6 +83,11 @@ export default function RegisterAppPage() {
       minTesters: 20,
       dismissGuide: false,
     },
+  });
+
+  const dismissGuide = useWatch({
+    control: form.control,
+    name: "dismissGuide",
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -183,7 +188,7 @@ export default function RegisterAppPage() {
           <div className="pt-4 flex items-center space-x-2 border-t border-blue-100">
             <Checkbox
               id="dismiss-guide"
-              checked={form.watch("dismissGuide")}
+              checked={dismissGuide}
               onCheckedChange={(checked) => form.setValue("dismissGuide", !!checked)}
             />
             <label

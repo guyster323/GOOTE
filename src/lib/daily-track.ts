@@ -1,7 +1,16 @@
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/lib/firebase";
+
 export type DailyTrackType = "android" | "web";
 
-export function buildDailyTrackUrl(participationId: string, type: DailyTrackType) {
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "goote-f48d8";
-  const encodedPid = encodeURIComponent(participationId);
-  return `https://us-central1-${projectId}.cloudfunctions.net/api/track-daily?pid=${encodedPid}&type=${type}`;
+export async function createDailyTrackUrl(participationId: string, type: DailyTrackType) {
+  const createLink = httpsCallable(functions, "createDailyTrackLink");
+  const result = await createLink({ participationId, type });
+  const data = result.data as { url?: string };
+
+  if (!data?.url) {
+    throw new Error("Daily tracking link 생성에 실패했습니다.");
+  }
+
+  return data.url;
 }
