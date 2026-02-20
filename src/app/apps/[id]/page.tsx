@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { doc, collection, addDoc, query, where, getDocs, serverTimestamp, Timestamp, onSnapshot } from "firebase/firestore";
+import { doc, collection, addDoc, query, where, getDocs, serverTimestamp, Timestamp, onSnapshot, deleteDoc } from "firebase/firestore";
 import { db, functions } from "@/lib/firebase";
 import { httpsCallable } from "firebase/functions";
 import { useAuth } from "@/hooks/use-auth";
@@ -150,6 +150,36 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     }
   };
 
+  const openGoogleGroupLink = () => {
+    if (!app?.googleGroupLink) {
+      toast.error("이 앱의 그룹스 가입 링크가 등록되지 않았습니다.");
+      return false;
+    }
+
+    try {
+      const parsed = new URL(app.googleGroupLink);
+      const isGoogleGroups =
+        parsed.hostname.includes("groups.google.com") &&
+        parsed.pathname.includes("/g/");
+
+      if (!isGoogleGroups) {
+        toast.error("그룹스 링크 형식이 올바르지 않습니다. 개발자에게 링크 수정을 요청해주세요.");
+        return false;
+      }
+    } catch {
+      toast.error("그룹스 링크 형식이 올바르지 않습니다. 개발자에게 링크 수정을 요청해주세요.");
+      return false;
+    }
+
+    const openedWindow = window.open(app.googleGroupLink, "_blank");
+    if (!openedWindow) {
+      toast.error("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");
+      return false;
+    }
+
+    return true;
+  };
+
   const handleJoinRequest = async () => {
     if (!user) {
       toast.info("참여하려면 로그인이 필요합니다.");
@@ -157,29 +187,25 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       return;
     }
 
-    if (!app.googleGroupLink) {
-      toast.error("이 앱의 그룹스 가입 링크가 등록되지 않았습니다.");
+    const linkOpened = openGoogleGroupLink();
+    if (!linkOpened) {
       return;
     }
 
     setRequesting(true);
     try {
-      // Open group link
-      window.open(app.googleGroupLink, '_blank');
+      const requestParticipation = httpsCallable(functions, "requestParticipation");
+      await requestParticipation({ appId: id });
 
-      // Optimistic update FIRST - Instant UI feedback
-      const optimisticParticipation = {
+      const joinedParticipation = {
         status: "active",
         testerId: user.uid,
         appId: id,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now()
       };
-      setParticipation(optimisticParticipation);
-      setShowParticipationSteps(true); // Ensure steps are shown to reveal download button
-
-      const requestParticipation = httpsCallable(functions, "requestParticipation");
-      await requestParticipation({ appId: id });
+      setParticipation(joinedParticipation);
+      setShowParticipationSteps(false);
 
       toast.success("테스터로 등록되었습니다! 이제 앱을 다운로드할 수 있습니다.");
 
@@ -191,13 +217,35 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     } catch (error: any) {
       console.error("Error joining participation:", error);
       toast.error(error.message || "참여 등록에 실패했습니다.");
-      // Revert on error
       fetchParticipation();
     } finally {
       setRequesting(false);
     }
   };
 
+  const handleLeaveParticipation = async () => {
+    if (!participation?.id) {
+      toast.error("참여 정보를 찾을 수 없습니다.");
+      return;
+    }
+
+    const shouldLeave = window.confirm("이 앱 테스트에서 나가시겠어요?");
+    if (!shouldLeave) return;
+
+    setRequesting(true);
+    try {
+      await deleteDoc(doc(db, "participations", participation.id));
+      setParticipation(null);
+      setShowParticipationSteps(false);
+      toast.success("테스트 참여를 종료했습니다.");
+    } catch (error) {
+      console.error("Error leaving participation:", error);
+      toast.error("나가기에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      await fetchParticipation();
+    } finally {
+      setRequesting(false);
+    }
+  };
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -363,6 +411,25 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
                           <Button disabled variant="outline" className="h-14 rounded-xl border-slate-100 text-slate-300">Web 링크 없음</Button>
                         )}
                       </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <Button
+                          variant="outline"
+                          className="h-12 rounded-xl border-slate-300 hover:bg-slate-100 font-bold"
+                          onClick={openGoogleGroupLink}
+                        >
+                          <Users className="mr-2 h-4 w-4" />
+                          그룹스 재가입
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          className="h-12 rounded-xl font-bold"
+                          onClick={handleLeaveParticipation}
+                          disabled={requesting}
+                        >
+                          {requesting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          나가기
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -504,6 +571,11 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     </div>
   );
 }
+
+
+
+
+
 
 
 
