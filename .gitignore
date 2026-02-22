@@ -44,3 +44,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local scratch artifacts
+/test-results/
+/test_validation.js
+/tmp_replace.py
+/260218_codereview.md
+/nul

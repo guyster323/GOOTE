@@ -79,7 +79,7 @@ export default function ExplorePage() {
         <div>
           <h1 className="text-4xl font-black tracking-tight text-slate-900">앱 탐색</h1>
           <p className="text-muted-foreground text-lg">
-            새로운 앱을 발견하고, 개발자를 돕고, 보상을 받으세요.
+            새로운 앱을 발견하고, 개발자를 돕고, 영감을 얻어가세요.
           </p>
         </div>
       </div>
