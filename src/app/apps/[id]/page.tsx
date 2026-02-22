@@ -238,9 +238,14 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       setParticipation(null);
       setShowParticipationSteps(false);
       toast.success("테스트 참여를 종료했습니다.");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error leaving participation:", error);
-      toast.error("나가기에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      const code = error?.code as string | undefined;
+      if (code === "permission-denied") {
+        toast.error("권한 문제로 나가기에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      } else {
+        toast.error("나가기에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      }
       await fetchParticipation();
     } finally {
       setRequesting(false);
@@ -571,11 +576,3 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     </div>
   );
 }
-
-
-
-
-
-
-
-

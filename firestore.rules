@@ -56,8 +56,9 @@ service cloud.firestore {
         isAdmin()
       );
 
-      // Developers/admin can delete requests
+      // Tester can leave their own participation. Developers/admin can also delete.
       allow delete: if isAuthenticated() && (
+        resource.data.testerId == request.auth.uid ||
         get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid ||
         isAdmin()
       );
