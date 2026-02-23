@@ -1,22 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   collection,
+  documentId,
+  getDocs,
+  onSnapshot,
   query,
   where,
-  onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, CheckCircle2, Calendar } from "lucide-react";
+import { Loader2, CheckCircle2, Calendar, Handshake } from "lucide-react";
 import { format } from "date-fns";
 import { createDailyTrackUrl } from "@/lib/daily-track";
+import {
+  getParticipationStartDate,
+  isAppTestCompleted,
+  isParticipationExpired,
+} from "@/lib/test-period";
 
 interface Participation {
   id: string;
@@ -26,11 +34,37 @@ interface Participation {
   consecutiveDays: number;
   dailyChecks: Record<string, boolean>;
   status: string;
-  startDate?: { toDate: () => Date };
+  startDate?: unknown;
+  createdAt?: unknown;
+  endDate?: unknown;
 }
+
+interface AppInfo {
+  id: string;
+  name?: string;
+  developerId?: string;
+  createdAt?: unknown;
+  testDuration?: number;
+  status?: string;
+}
+
+interface CrossStatus {
+  hasMyApps: boolean;
+  isDeveloperTestingMine: boolean;
+}
+
+const chunk = <T,>(arr: T[], size: number) => {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+};
 
 export default function MyTestsPage() {
   const [participations, setParticipations] = useState<Participation[]>([]);
+  const [appInfoById, setAppInfoById] = useState<Record<string, AppInfo>>({});
+  const [crossStatusByAppId, setCrossStatusByAppId] = useState<Record<string, CrossStatus>>({});
   const [loading, setLoading] = useState(true);
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
   const { user } = useAuth();
@@ -39,32 +73,112 @@ export default function MyTestsPage() {
   useEffect(() => {
     if (!user) return;
 
-    const q = query(
-      collection(db, "participations"),
-      where("testerId", "==", user.uid)
-    );
+    const q = query(collection(db, "participations"), where("testerId", "==", user.uid));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched = snapshot.docs
-        .map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-            appName: data.appName || "이름 없는 앱",
-            targetDays: data.targetDays || 14,
-            consecutiveDays: data.consecutiveDays || 0,
-            dailyChecks: data.dailyChecks || {},
-          };
-        })
-        .filter((p: any) => ["active", "pending", "completed"].includes(p.status)) as Participation[];
-      setParticipations(fetched);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching participations:", error);
-      toast.error("테스트 목록을 불러오는데 실패했습니다.");
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      async (snapshot) => {
+        try {
+          const fetched = snapshot.docs
+            .map((doc) => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                ...data,
+                appName: data.appName || "이름 없는 앱",
+                targetDays: data.targetDays || 14,
+                consecutiveDays: data.consecutiveDays || 0,
+                dailyChecks: data.dailyChecks || {},
+              };
+            })
+            .filter((p: any) => ["active", "pending", "completed"].includes(p.status)) as Participation[];
+
+          const now = new Date();
+          const statusFiltered = fetched.filter((p) => p.status !== "completed");
+          const periodFiltered = statusFiltered.filter((p) => !isParticipationExpired(p, now));
+
+          const appIds = Array.from(new Set(periodFiltered.map((p) => p.appId).filter(Boolean)));
+          const appInfoMap: Record<string, AppInfo> = {};
+
+          for (const ids of chunk(appIds, 10)) {
+            const appsSnapshot = await getDocs(query(collection(db, "apps"), where(documentId(), "in", ids)));
+            appsSnapshot.docs.forEach((appDoc) => {
+              appInfoMap[appDoc.id] = { id: appDoc.id, ...appDoc.data() } as AppInfo;
+            });
+          }
+
+          const notCompletedApps = periodFiltered.filter((p) => {
+            const appInfo = appInfoMap[p.appId];
+            return appInfo ? !isAppTestCompleted(appInfo, now) : true;
+          });
+
+          setParticipations(notCompletedApps);
+          setAppInfoById(appInfoMap);
+
+          const myAppsSnapshot = await getDocs(
+            query(
+              collection(db, "apps"),
+              where("developerId", "==", user.uid),
+              where("status", "!=", "deleted")
+            )
+          );
+
+          const myApps = myAppsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+          const hasMyApps = myApps.length > 0;
+          const myAppIdSet = new Set(myApps.map((a) => a.id));
+
+          const developerIds = Array.from(
+            new Set(
+              notCompletedApps
+                .map((p) => appInfoMap[p.appId]?.developerId)
+                .filter((id): id is string => Boolean(id))
+            )
+          );
+
+          const developersTestingMine = new Set<string>();
+
+          if (hasMyApps && developerIds.length > 0) {
+            for (const testerIds of chunk(developerIds, 10)) {
+              const crossSnap = await getDocs(
+                query(
+                  collection(db, "participations"),
+                  where("testerId", "in", testerIds),
+                  where("status", "in", ["active", "completed"])
+                )
+              );
+
+              crossSnap.docs.forEach((crossDoc) => {
+                const cross = crossDoc.data() as { testerId?: string; appId?: string };
+                if (cross.testerId && cross.appId && myAppIdSet.has(cross.appId)) {
+                  developersTestingMine.add(cross.testerId);
+                }
+              });
+            }
+          }
+
+          const crossMap: Record<string, CrossStatus> = {};
+          notCompletedApps.forEach((p) => {
+            const developerId = appInfoMap[p.appId]?.developerId;
+            crossMap[p.appId] = {
+              hasMyApps,
+              isDeveloperTestingMine: hasMyApps && Boolean(developerId && developersTestingMine.has(developerId)),
+            };
+          });
+
+          setCrossStatusByAppId(crossMap);
+        } catch (error) {
+          console.error("Error composing my tests view:", error);
+          toast.error("테스트 목록을 불러오는데 실패했습니다.");
+        } finally {
+          setLoading(false);
+        }
+      },
+      (error) => {
+        console.error("Error fetching participations:", error);
+        toast.error("테스트 목록을 불러오는데 실패했습니다.");
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [user]);
@@ -95,6 +209,14 @@ export default function MyTestsPage() {
     }
   };
 
+  const todayStr = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+
+  const safeDateFormat = (date: Date | null) => {
+    if (!date) return "미정";
+    if (Number.isNaN(date.getTime())) return "날짜 오류";
+    return format(date, "yyyy년 M월 d일");
+  };
+
   if (loading) {
     return (
       <div className="flex h-[50vh] items-center justify-center">
@@ -102,19 +224,6 @@ export default function MyTestsPage() {
       </div>
     );
   }
-
-  const todayStr = format(new Date(), "yyyy-MM-dd");
-
-  const safeDateFormat = (dateObj: any) => {
-    try {
-      if (!dateObj) return "미정";
-      const date = dateObj.toDate ? dateObj.toDate() : new Date(dateObj);
-      if (isNaN(date.getTime())) return "날짜 오류";
-      return format(date, "yyyy년 M월 d일");
-    } catch {
-      return "미정";
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -137,6 +246,9 @@ export default function MyTestsPage() {
           {participations.map((p) => {
             const progress = ((p.consecutiveDays || 0) / (p.targetDays || 14)) * 100;
             const isCheckedInToday = p.dailyChecks ? p.dailyChecks[todayStr] : false;
+            const startDate = getParticipationStartDate(p);
+            const cross = crossStatusByAppId[p.appId];
+            const developer = appInfoById[p.appId]?.developerId;
 
             return (
               <Card
@@ -167,7 +279,25 @@ export default function MyTestsPage() {
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>시작일: {safeDateFormat(p.startDate)}</span>
+                    <span>시작일: {safeDateFormat(startDate)}</span>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    {!cross?.hasMyApps ? (
+                      <p className="text-sm font-semibold text-slate-700">테스트 참여에 감사합니다.</p>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Handshake className="h-4 w-4 text-primary" />
+                        {cross.isDeveloperTestingMine ? (
+                          <Badge className="bg-emerald-600">해당 개발자가 내 앱 테스트 중</Badge>
+                        ) : (
+                          <Badge variant="secondary">해당 개발자가 내 앱 테스트 전</Badge>
+                        )}
+                      </div>
+                    )}
+                    {!developer && (
+                      <p className="mt-1 text-[11px] text-slate-500">개발자 정보를 확인할 수 없습니다.</p>
+                    )}
                   </div>
                 </CardContent>
                 <CardFooter>
@@ -185,7 +315,13 @@ export default function MyTestsPage() {
                     ) : (
                       !isCheckedInToday && <CheckCircle2 className="mr-2 h-4 w-4" />
                     )}
-                    {isCheckedInToday ? <><CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> 오늘 출석 완료</> : "오늘의 출석 체크"}
+                    {isCheckedInToday ? (
+                      <>
+                        <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" /> 오늘 출석 완료
+                      </>
+                    ) : (
+                      "오늘의 출석 체크"
+                    )}
                   </Button>
                 </CardFooter>
               </Card>
@@ -196,7 +332,4 @@ export default function MyTestsPage() {
     </div>
   );
 }
-
-
-
 

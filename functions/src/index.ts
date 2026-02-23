@@ -9,7 +9,7 @@ const db = admin.firestore();
 
 // Max timeout for cold starts and heavy operations
 const runtimeOpts: functions.RuntimeOptions = {
-  timeoutSeconds: 300,
+  timeoutSeconds: 540,
   memory: "512MB"
 };
 
@@ -253,6 +253,9 @@ export const requestParticipation = functions.runWith(runtimeOpts).https.onCall(
         }
         throw new functions.https.HttpsError("already-exists", "이미 참여 요청을 보냈습니다.");
       }
+      const targetDays = Number(appData?.testDuration || 14);
+      const startDate = admin.firestore.Timestamp.now();
+      const endDate = admin.firestore.Timestamp.fromMillis(startDate.toMillis() + targetDays * 24 * 60 * 60 * 1000);
 
       tx.create(participationRef, {
         appId,
@@ -263,7 +266,9 @@ export const requestParticipation = functions.runWith(runtimeOpts).https.onCall(
         status: "active",
         dailyTrackToken: randomBytes(24).toString("hex"),
         consecutiveDays: 0,
-        targetDays: appData?.testDuration || 14,
+        targetDays,
+        startDate,
+        endDate,
         lastCheckIn: null,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -584,6 +589,84 @@ export const onParticipationUpdated = functions.firestore
       } catch (error) {
         functions.logger.error(`Error processing participation completion for ID: ${context.params.participationId}`, error);
       }
+    }
+  });
+
+/**
+ * Daily scheduler to expire app test periods and active participations.
+ * Runs every day at 00:10 KST.
+ */
+export const expireTestPeriods = functions.runWith(runtimeOpts).pubsub
+  .schedule("10 0 * * *")
+  .timeZone("Asia/Seoul")
+  .onRun(async () => {
+    functions.logger.info("Starting expireTestPeriods scheduler");
+
+    const now = admin.firestore.Timestamp.now();
+
+    try {
+      const recruitingAppsSnap = await db.collection("apps").where("status", "==", "recruiting").get();
+      const appBatch = db.batch();
+      let appUpdates = 0;
+
+      recruitingAppsSnap.docs.forEach((appDoc) => {
+        const data = appDoc.data();
+        const createdAt = data.createdAt as admin.firestore.Timestamp | undefined;
+        const durationDays = Number(data.testDuration || 0);
+        if (!createdAt || durationDays <= 0) return;
+
+        const endMillis = createdAt.toMillis() + durationDays * 24 * 60 * 60 * 1000;
+        if (now.toMillis() >= endMillis) {
+          appBatch.update(appDoc.ref, {
+            status: "test-completed",
+            testCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          appUpdates += 1;
+        }
+      });
+
+      if (appUpdates > 0) {
+        await appBatch.commit();
+      }
+
+      const activeParticipationsSnap = await db.collection("participations").where("status", "==", "active").get();
+      const partBatch = db.batch();
+      let partUpdates = 0;
+
+      activeParticipationsSnap.docs.forEach((partDoc) => {
+        const data = partDoc.data();
+        const targetDays = Number(data.targetDays || 0);
+        if (targetDays <= 0) return;
+
+        const startDate = (data.startDate || data.createdAt) as admin.firestore.Timestamp | undefined;
+        if (!startDate) return;
+
+        const endMillis = startDate.toMillis() + targetDays * 24 * 60 * 60 * 1000;
+        if (now.toMillis() >= endMillis) {
+          partBatch.update(partDoc.ref, {
+            status: "completed",
+            endDate: admin.firestore.Timestamp.fromMillis(endMillis),
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          partUpdates += 1;
+        }
+      });
+
+      if (partUpdates > 0) {
+        await partBatch.commit();
+      }
+
+      functions.logger.info("expireTestPeriods completed", {
+        updatedApps: appUpdates,
+        updatedParticipations: partUpdates,
+      });
+
+      return null;
+    } catch (error) {
+      functions.logger.error("Error in expireTestPeriods", error);
+      return null;
     }
   });
 

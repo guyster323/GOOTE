@@ -10,12 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Users, Calendar, ExternalLink, MessageSquare, Send, User, Clock, CheckCircle2, Smartphone, Globe } from "lucide-react";
+import { Loader2, Users, Calendar, ExternalLink, MessageSquare, Send, User, Clock, CheckCircle2, Smartphone, Globe, Handshake } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
 import { createDailyTrackUrl } from "@/lib/daily-track";
+import { isAppTestCompleted } from "@/lib/test-period";
 
 export default function AppDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -31,6 +32,8 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
   const [showParticipationSteps, setShowParticipationSteps] = useState(false);
   const [participation, setParticipation] = useState<any>(null);
   const [checkingParticipation, setCheckingParticipation] = useState(false);
+  const [crossStatus, setCrossStatus] = useState<{ hasMyApps: boolean; isDeveloperTestingMine: boolean } | null>(null);
+  const [checkingCrossStatus, setCheckingCrossStatus] = useState(false);
 
   const fetchParticipation = useCallback(async () => {
     if (!user || !id) return;
@@ -120,6 +123,59 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       setParticipation(null);
     }
   }, [id, user, fetchParticipation]);
+
+  useEffect(() => {
+    const fetchCrossStatus = async () => {
+      if (!user || !app?.developerId) {
+        setCrossStatus(null);
+        return;
+      }
+
+      setCheckingCrossStatus(true);
+      try {
+        const myAppsSnap = await getDocs(
+          query(
+            collection(db, "apps"),
+            where("developerId", "==", user.uid),
+            where("status", "!=", "deleted")
+          )
+        );
+
+        const myApps = myAppsSnap.docs.map((d) => d.id);
+        if (myApps.length === 0) {
+          setCrossStatus({ hasMyApps: false, isDeveloperTestingMine: false });
+          return;
+        }
+
+        let isDeveloperTestingMine = false;
+        for (let j = 0; j < myApps.length; j += 10) {
+          const appIds = myApps.slice(j, j + 10);
+          const crossSnap = await getDocs(
+            query(
+              collection(db, "participations"),
+              where("testerId", "==", app.developerId),
+              where("appId", "in", appIds),
+              where("status", "in", ["active", "completed"])
+            )
+          );
+
+          if (!crossSnap.empty) {
+            isDeveloperTestingMine = true;
+            break;
+          }
+        }
+
+        setCrossStatus({ hasMyApps: true, isDeveloperTestingMine });
+      } catch (error) {
+        console.error("Error fetching cross status:", error);
+        setCrossStatus(null);
+      } finally {
+        setCheckingCrossStatus(false);
+      }
+    };
+
+    fetchCrossStatus();
+  }, [app?.developerId, user]);
 
   // Safe date formatter
   const safeFormatDate = (timestamp: any) => {
@@ -308,6 +364,8 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
 
   if (!app) return null;
 
+  const isCompletedApp = isAppTestCompleted(app);
+
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4">
       <div className="max-w-3xl mx-auto space-y-8">
@@ -347,8 +405,24 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col items-center justify-center text-center">
                 <Badge variant="outline" className="mb-1 text-[10px]">목표: {app.minTesters}명</Badge>
                 <span className="text-[10px] text-slate-500 font-bold uppercase">모집 상태</span>
-                <span className="text-xs font-black text-primary uppercase">recruiting</span>
+                <span className="text-xs font-black uppercase">{isCompletedApp ? "테스트 완료" : "모집 중"}</span>
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                <Handshake className="h-4 w-4 text-primary" />
+                교차 테스트 현황
+              </h3>
+              {checkingCrossStatus ? (
+                <p className="text-sm text-slate-500">확인 중...</p>
+              ) : !crossStatus?.hasMyApps ? (
+                <p className="text-sm font-semibold text-slate-700">테스트 참여에 감사합니다.</p>
+              ) : crossStatus.isDeveloperTestingMine ? (
+                <Badge className="bg-emerald-600">해당 개발자가 내 앱을 테스트 중입니다.</Badge>
+              ) : (
+                <Badge variant="secondary">해당 개발자가 내 앱을 아직 테스트하지 않았습니다.</Badge>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -369,7 +443,12 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
                 참여 방법 및 다운로드
               </h3>
 
-              {checkingParticipation ? (
+              {isCompletedApp ? (
+                <div className="flex flex-col items-center justify-center py-12 bg-slate-50 rounded-2xl border border-slate-200">
+                  <p className="text-lg font-bold text-slate-800">테스트가 완료된 앱입니다.</p>
+                  <p className="text-sm text-slate-500 mt-1">새 테스트를 등록하면 앱 탐색에서 다시 참여를 받을 수 있습니다.</p>
+                </div>
+              ) : checkingParticipation ? (
                 <div className="flex flex-col items-center justify-center py-12 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
                   <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
                   <p className="text-sm text-slate-500 font-medium">참여 정보 확인 중...</p>
@@ -576,3 +655,4 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     </div>
   );
 }
+

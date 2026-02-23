@@ -75,7 +75,7 @@ export function AppSidebar() {
             <AppWindow className="h-5 w-5" />
           </div>
           <div className="flex flex-col gap-0.5 leading-none group-data-[collapsible=icon]:hidden">
-            <span className="font-bold text-lg tracking-tighter">GOOTE <span className="text-[10px] text-muted-foreground align-top ml-0.5">v0.7</span></span>
+            <span className="font-bold text-lg tracking-tighter">GOOTE <span className="text-[10px] text-muted-foreground align-top ml-0.5">v0.8</span></span>
             <span className="text-[10px] text-primary font-bold leading-none uppercase tracking-tighter">Pro Max</span>
           </div>
         </div>
@@ -162,3 +162,4 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+

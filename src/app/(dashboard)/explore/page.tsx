@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Loader2, Users, Calendar, Search, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { isAppTestCompleted } from "@/lib/test-period";
 
 interface App {
   id: string;
@@ -18,10 +19,21 @@ interface App {
   developerNickname: string;
   testDuration: number;
   participationLink: string;
+  createdAt?: unknown;
+  status?: string;
   stats: {
     participants: number;
   };
 }
+
+const categories = [
+  { id: "all", label: "전체" },
+  { id: "game", label: "게임" },
+  { id: "utility", label: "유틸리티" },
+  { id: "productivity", label: "생산성" },
+  { id: "other", label: "기타" },
+  { id: "test-completed", label: "테스트 완료" },
+] as const;
 
 export default function ExplorePage() {
   const [apps, setApps] = useState<App[]>([]);
@@ -35,7 +47,7 @@ export default function ExplorePage() {
 
   const fetchApps = async () => {
     try {
-      const q = query(collection(db, "apps"), where("status", "==", "recruiting"));
+      const q = query(collection(db, "apps"), where("status", "in", ["recruiting", "test-completed"]));
       const querySnapshot = await getDocs(q);
       const fetchedApps = querySnapshot.docs.map((doc) => ({
         id: doc.id,
@@ -50,12 +62,31 @@ export default function ExplorePage() {
     }
   };
 
-  const filteredApps = apps.filter((app) => {
-    const matchesSearch = app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      app.developerNickname.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = categoryFilter === "all" || app.category === categoryFilter;
-    return matchesSearch && matchesCategory;
-  });
+  const filteredApps = useMemo(() => {
+    return apps.filter((app) => {
+      const completed = isAppTestCompleted(app);
+      const matchesSearch =
+        app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        app.developerNickname.toLowerCase().includes(searchTerm.toLowerCase());
+
+      if (!matchesSearch) return false;
+
+      if (categoryFilter === "test-completed") {
+        return completed;
+      }
+
+      if (completed) {
+        // UX: 기본 탐색에서는 완료 앱을 숨김
+        return false;
+      }
+
+      if (categoryFilter === "all") {
+        return true;
+      }
+
+      return app.category === categoryFilter;
+    });
+  }, [apps, categoryFilter, searchTerm]);
 
   if (loading) {
     return (
@@ -64,14 +95,6 @@ export default function ExplorePage() {
       </div>
     );
   }
-
-  const categories = [
-    { id: "all", label: "전체" },
-    { id: "game", label: "게임" },
-    { id: "utility", label: "유틸리티" },
-    { id: "productivity", label: "생산성" },
-    { id: "other", label: "기타" },
-  ];
 
   return (
     <div className="space-y-6">
@@ -118,46 +141,47 @@ export default function ExplorePage() {
         </div>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredApps.map((app) => (
-            <Card key={app.id} className="flex flex-col">
-              <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <CardTitle className="text-xl line-clamp-1">{app.name}</CardTitle>
-                  <Badge variant="secondary">
-                    {categories.find(c => c.id === app.category)?.label || app.category}
-                  </Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  개발자: {app.developerNickname}
-                </p>
-              </CardHeader>
-              <CardContent className="flex-1 space-y-4">
-                <div className="flex items-center gap-4 text-sm">
-                  <div className="flex items-center gap-1 text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    <span>{app.testDuration}일</span>
+          {filteredApps.map((app) => {
+            const completed = isAppTestCompleted(app);
+            return (
+              <Card key={app.id} className="flex flex-col">
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-4">
+                    <CardTitle className="text-xl line-clamp-1">{app.name}</CardTitle>
+                    <Badge variant="secondary">
+                      {completed
+                        ? "테스트 완료"
+                        : categories.find((c) => c.id === app.category)?.label || app.category}
+                    </Badge>
                   </div>
-                  <div className="flex items-center gap-1 text-muted-foreground">
-                    <Users className="h-4 w-4" />
-                    <span>{app.stats.participants}명의 테스터</span>
+                  <p className="text-sm text-muted-foreground">개발자: {app.developerNickname}</p>
+                </CardHeader>
+                <CardContent className="flex-1 space-y-4">
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Calendar className="h-4 w-4" />
+                      <span>{app.testDuration}일</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Users className="h-4 w-4" />
+                      <span>{app.stats?.participants || 0}명의 테스터</span>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-              <CardFooter className="pt-0">
-                <Button
-                  className="w-full h-11 font-bold"
-                  asChild
-                >
-                  <Link href={`/apps/${app.id}`}>
-                    상세보기 및 참여요청
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
+                </CardContent>
+                <CardFooter className="pt-0">
+                  <Button className="w-full h-11 font-bold" asChild>
+                    <Link href={`/apps/${app.id}`}>
+                      상세보기 및 참여요청
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                </CardFooter>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
+

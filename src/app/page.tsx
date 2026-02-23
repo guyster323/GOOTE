@@ -107,13 +107,13 @@ function HomeContent() {
           </div>
           <h1 className="text-4xl font-black tracking-tighter text-white inline-flex items-start justify-center gap-2">
             <span>GOOTE</span>
-            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.7</span>
+            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.8</span>
             <TooltipProvider delayDuration={0}>
               <Tooltip open={releaseTooltipOpen} onOpenChange={setReleaseTooltipOpen}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    aria-label="v0.7 업데이트 내역 보기"
+                    aria-label="v0.8 업데이트 내역 보기"
                     className="mt-1 text-slate-500 hover:text-slate-300 transition-colors"
                     onClick={handleReleaseNoteClick}
                   >
@@ -121,11 +121,11 @@ function HomeContent() {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="center" className="max-w-xs bg-slate-900 text-slate-100 border border-slate-700 p-3">
-                  <p className="font-bold mb-1">v0.7 업데이트</p>
+                  <p className="font-bold mb-1">v0.8 업데이트</p>
                   <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed">
-                    <li>앱 상세의 Android/Web 참여 링크 클릭이 오늘 참여 완료 카운트로 반영</li>
-                    <li>참여 중인 테스트의 오늘의 출석 체크가 Android 참여 링크를 열고 동일 카운트 반영</li>
-                    <li>일일 메일 스케줄러 안정성 개선(allSettled, 누락 이메일 가드, KST 날짜 기준 통일)</li>
+                    <li>내 테스트 시작일을 참여 등록일 기준으로 통일하고 기간 만료 테스트 자동 종료 처리</li>
+                    <li>앱 탐색에 &quot;테스트 완료&quot; 카테고리 추가 및 기본 탐색에서 완료 앱 숨김</li>
+                    <li>내 테스트/앱 상세에 개발자-테스터 교차 참여 상태 표시 및 내 등록 앱 없을 때 감사 메시지 표시</li>
                   </ul>
                 </TooltipContent>
               </Tooltip>
@@ -245,4 +245,5 @@ export default function Home() {
     </Suspense>
   );
 }
+
 
