@@ -39,6 +39,79 @@ const ensureDailyTrackToken = async (
   return newToken;
 };
 
+const TERMINAL_APP_STATUSES = new Set([
+  "test-completed",
+  "terminated",
+  "deleted",
+  "closed",
+  "archived",
+]);
+
+const isAppEligibleForMail = (appData: FirebaseFirestore.DocumentData | undefined) => {
+  if (!appData) return false;
+  if (appData.deletedAt || appData.isDeleted === true) return false;
+
+  const rawStatus = typeof appData.status === "string" ? appData.status.trim().toLowerCase() : "";
+  if (!rawStatus) return true;
+  return !TERMINAL_APP_STATUSES.has(rawStatus);
+};
+
+const getParticipationEndMillis = (data: FirebaseFirestore.DocumentData | undefined) => {
+  const explicitEndDate = data?.endDate as admin.firestore.Timestamp | undefined;
+  if (explicitEndDate && typeof explicitEndDate.toMillis === "function") {
+    return explicitEndDate.toMillis();
+  }
+
+  const targetDays = Number(data?.targetDays || 0);
+  if (targetDays <= 0) return null;
+  const startDate = (data?.startDate || data?.createdAt) as admin.firestore.Timestamp | undefined;
+  if (!startDate || typeof startDate.toMillis !== "function") return null;
+  return startDate.toMillis() + targetDays * 24 * 60 * 60 * 1000;
+};
+
+const closeActiveParticipation = async (
+  participationRef: FirebaseFirestore.DocumentReference,
+  reason: string,
+  endMillis?: number | null
+) => {
+  const payload: Record<string, any> = {
+    status: "completed",
+    completedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    mailSkipReason: reason,
+  };
+
+  if (typeof endMillis === "number" && Number.isFinite(endMillis)) {
+    payload.endDate = admin.firestore.Timestamp.fromMillis(endMillis);
+  }
+
+  await participationRef.update(payload);
+};
+
+const resolveTesterEmail = async (
+  participationRef: FirebaseFirestore.DocumentReference,
+  data: FirebaseFirestore.DocumentData | undefined
+) => {
+  if (typeof data?.testerEmail === "string" && data.testerEmail.trim()) {
+    return data.testerEmail.trim();
+  }
+
+  const testerId = typeof data?.testerId === "string" ? data.testerId : "";
+  if (!testerId) return "";
+
+  const testerSnap = await db.collection("users").doc(testerId).get();
+  const resolvedEmail = testerSnap.data()?.email;
+  if (typeof resolvedEmail === "string" && resolvedEmail.trim()) {
+    await participationRef.update({
+      testerEmail: resolvedEmail.trim(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return resolvedEmail.trim();
+  }
+
+  return "";
+};
+
 /**
  * Triggered when a new user is created via Firebase Auth.
  * Initializes the user document in the 'users' collection.
@@ -237,6 +310,9 @@ export const requestParticipation = functions.runWith(runtimeOpts).https.onCall(
     }
 
     const appData = appSnap.data();
+    if (!isAppEligibleForMail(appData)) {
+      throw new functions.https.HttpsError("failed-precondition", "종료되었거나 삭제된 앱은 참여할 수 없습니다.");
+    }
     const developerId = appData?.developerId;
     const testerData = testerSnap.data();
 
@@ -830,15 +906,39 @@ export const dailyTaskMailScheduler = functions.runWith(runtimeOpts).pubsub
       const promises = activeParticipationsSnapshot.docs.map(async (doc) => {
         const data = doc.data();
         const participationId = doc.id;
-        const { testerEmail, testerNickname, appId, appName } = data;
+        const { testerNickname, appId } = data;
 
-        if (!testerEmail) {
-          functions.logger.warn("Skipping daily task mail: testerEmail missing", { participationId });
+        const endMillis = getParticipationEndMillis(data);
+        if (typeof endMillis === "number" && endMillis <= Date.now()) {
+          await closeActiveParticipation(doc.ref, "expired-before-mail-send", endMillis);
+          functions.logger.info("Skipping daily task mail: participation already expired", { participationId });
+          return null;
+        }
+
+        if (!appId || typeof appId !== "string") {
+          functions.logger.warn("Skipping daily task mail: appId missing", { participationId });
           return null;
         }
 
         const appSnap = await db.collection("apps").doc(appId).get();
         const appData = appSnap.data();
+        if (!appSnap.exists || !isAppEligibleForMail(appData)) {
+          await closeActiveParticipation(doc.ref, "app-not-eligible-for-mail");
+          functions.logger.info("Skipping daily task mail: app inactive/deleted", { participationId, appId });
+          return null;
+        }
+
+        const testerEmail = await resolveTesterEmail(doc.ref, data);
+        if (!testerEmail) {
+          functions.logger.warn("Skipping daily task mail: testerEmail missing", { participationId });
+          return null;
+        }
+
+        const appName = typeof data.appName === "string" && data.appName.trim()
+          ? data.appName.trim()
+          : typeof appData?.name === "string" && appData.name.trim()
+            ? appData.name.trim()
+            : "앱";
 
         // Daily tracking links
         const token = await ensureDailyTrackToken(doc.ref, data);
@@ -934,15 +1034,39 @@ export const dailyNudgeMailScheduler = functions.runWith(runtimeOpts).pubsub
         if (hasCheckedToday) return null;
 
         const participationId = doc.id;
-        const { testerEmail, testerNickname, appId, appName } = data;
+        const { testerNickname, appId } = data;
 
-        if (!testerEmail) {
-          functions.logger.warn("Skipping daily nudge mail: testerEmail missing", { participationId });
+        const endMillis = getParticipationEndMillis(data);
+        if (typeof endMillis === "number" && endMillis <= Date.now()) {
+          await closeActiveParticipation(doc.ref, "expired-before-mail-send", endMillis);
+          functions.logger.info("Skipping daily nudge mail: participation already expired", { participationId });
+          return null;
+        }
+
+        if (!appId || typeof appId !== "string") {
+          functions.logger.warn("Skipping daily nudge mail: appId missing", { participationId });
           return null;
         }
 
         const appSnap = await db.collection("apps").doc(appId).get();
         const appData = appSnap.data();
+        if (!appSnap.exists || !isAppEligibleForMail(appData)) {
+          await closeActiveParticipation(doc.ref, "app-not-eligible-for-mail");
+          functions.logger.info("Skipping daily nudge mail: app inactive/deleted", { participationId, appId });
+          return null;
+        }
+
+        const testerEmail = await resolveTesterEmail(doc.ref, data);
+        if (!testerEmail) {
+          functions.logger.warn("Skipping daily nudge mail: testerEmail missing", { participationId });
+          return null;
+        }
+
+        const appName = typeof data.appName === "string" && data.appName.trim()
+          ? data.appName.trim()
+          : typeof appData?.name === "string" && appData.name.trim()
+            ? appData.name.trim()
+            : "앱";
 
         // Daily tracking links
         const token = await ensureDailyTrackToken(doc.ref, data);
