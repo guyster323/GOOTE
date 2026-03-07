@@ -11,6 +11,12 @@ import { collection, query, getDocs, limit, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+const RELEASE_NOTES = [
+  "앱 둘러보기를 참여 랭킹 순으로 재정렬하고 상위 10위·20위 개발자 앱에 프로모션 뱃지를 표시",
+  "참여 랭킹 상위 개발자의 앱이 더 잘 보이도록 탐색 카드에 랭킹 배지와 순위 정보를 추가",
+  "로그인 화면 버전을 v0.9로 올리고 변경 내역 안내를 마우스 오버와 터치 모두에서 확인 가능하게 개선",
+];
+
 function HomeContent() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
@@ -20,6 +26,13 @@ function HomeContent() {
   const [loadingApps, setLoadingApps] = useState(true);
   const [releaseTooltipOpen, setReleaseTooltipOpen] = useState(false);
   const releaseTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearReleaseTooltipTimer = () => {
+    if (releaseTooltipTimerRef.current) {
+      clearTimeout(releaseTooltipTimerRef.current);
+      releaseTooltipTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     if (!isLoading && user) {
@@ -51,27 +64,33 @@ function HomeContent() {
     fetchTestApps();
   }, []);
 
-
   useEffect(() => {
     return () => {
       if (releaseTooltipTimerRef.current) {
         clearTimeout(releaseTooltipTimerRef.current);
+        releaseTooltipTimerRef.current = null;
       }
     };
   }, []);
 
-  const handleReleaseNoteClick = () => {
+  const openReleaseTooltipWithTimeout = () => {
     setReleaseTooltipOpen(true);
-
-    if (releaseTooltipTimerRef.current) {
-      clearTimeout(releaseTooltipTimerRef.current);
-    }
+    clearReleaseTooltipTimer();
 
     releaseTooltipTimerRef.current = setTimeout(() => {
       setReleaseTooltipOpen(false);
       releaseTooltipTimerRef.current = null;
     }, 5000);
   };
+
+  const handleReleaseTooltipOpenChange = (open: boolean) => {
+    if (!open) {
+      clearReleaseTooltipTimer();
+    }
+
+    setReleaseTooltipOpen(open);
+  };
+
   const handleLogin = async () => {
     try {
       await loginWithGoogle();
@@ -95,7 +114,6 @@ function HomeContent() {
 
   return (
     <div className="flex min-h-screen relative overflow-hidden bg-slate-950 items-center justify-center px-4">
-      {/* Abstract Background Effects */}
       <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob" />
       <div className="absolute top-0 -right-4 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000" />
       <div className="absolute -bottom-8 left-20 w-72 h-72 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000" />
@@ -107,25 +125,25 @@ function HomeContent() {
           </div>
           <h1 className="text-4xl font-black tracking-tighter text-white inline-flex items-start justify-center gap-2">
             <span>GOOTE</span>
-            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.8</span>
+            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.9</span>
             <TooltipProvider delayDuration={0}>
-              <Tooltip open={releaseTooltipOpen} onOpenChange={setReleaseTooltipOpen}>
+              <Tooltip open={releaseTooltipOpen} onOpenChange={handleReleaseTooltipOpenChange}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    aria-label="v0.8 업데이트 내역 보기"
+                    aria-label="v0.9 업데이트 내역 보기"
                     className="mt-1 text-slate-500 hover:text-slate-300 transition-colors"
-                    onClick={handleReleaseNoteClick}
+                    onClick={openReleaseTooltipWithTimeout}
                   >
                     <HelpCircle className="h-4 w-4" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="center" className="max-w-xs bg-slate-900 text-slate-100 border border-slate-700 p-3">
-                  <p className="font-bold mb-1">v0.8 업데이트</p>
+                  <p className="font-bold mb-1">v0.9 업데이트</p>
                   <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed">
-                    <li>내 테스트 시작일을 참여 등록일 기준으로 통일하고 기간 만료 테스트 자동 종료 처리</li>
-                    <li>앱 탐색에 &quot;테스트 완료&quot; 카테고리 추가 및 기본 탐색에서 완료 앱 숨김</li>
-                    <li>내 테스트/앱 상세에 개발자-테스터 교차 참여 상태 표시 및 내 등록 앱 없을 때 감사 메시지 표시</li>
+                    {RELEASE_NOTES.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
                   </ul>
                 </TooltipContent>
               </Tooltip>
@@ -188,7 +206,6 @@ function HomeContent() {
           </CardContent>
         </Card>
 
-        {/* Test Status Section */}
         <div className="mt-8">
           <div className="flex items-center gap-2 mb-4 justify-center text-slate-400">
             <ListChecks className="h-4 w-4" />
@@ -245,5 +262,3 @@ export default function Home() {
     </Suspense>
   );
 }
-
-

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,12 +11,13 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Loader2, Users, Calendar, Search, ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { isAppTestCompleted } from "@/lib/test-period";
+import { isAppTestCompleted, isParticipationExpired } from "@/lib/test-period";
 
 interface App {
   id: string;
   name: string;
   category: string;
+  developerId?: string;
   developerNickname: string;
   testDuration: number;
   participationLink: string;
@@ -26,6 +28,29 @@ interface App {
   };
 }
 
+interface Participation {
+  appId?: string;
+  status?: string;
+  startDate?: unknown;
+  createdAt?: unknown;
+  endDate?: unknown;
+  targetDays?: number;
+}
+
+type JoinedBadgeStatus = "active" | "pending" | "completed";
+
+interface RankingUser {
+  id: string;
+  email?: string;
+  nickname?: string;
+  stats?: {
+    testsJoined?: number;
+    testsCompleted?: number;
+  };
+}
+
+const UNRANKED_SORT_VALUE = Number.MAX_SAFE_INTEGER;
+
 const categories = [
   { id: "all", label: "전체" },
   { id: "game", label: "게임" },
@@ -35,58 +60,166 @@ const categories = [
   { id: "test-completed", label: "테스트 완료" },
 ] as const;
 
+const getDisplayName = (user: RankingUser) =>
+  user.nickname?.trim() || user.email?.split("@")[0] || "익명 사용자";
+
+const getCreatedAtMillis = (value: unknown) => {
+  if (!value) return 0;
+  if (typeof value === "number") return value;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "object" && value !== null && "toMillis" in value && typeof value.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  return 0;
+};
+
+const getPromotionBadge = (rank?: number) => {
+  if (!rank) return null;
+  if (rank <= 10) {
+    return {
+      label: "열혈 맞테스터",
+      className: "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50",
+    };
+  }
+
+  if (rank <= 20) {
+    return {
+      label: "맞테스터",
+      className: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
+    };
+  }
+
+  return null;
+};
+
 export default function ExplorePage() {
   const [apps, setApps] = useState<App[]>([]);
+  const [joinedAppStatusById, setJoinedAppStatusById] = useState<Record<string, JoinedBadgeStatus>>({});
+  const [developerRankById, setDeveloperRankById] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const { user } = useAuth();
 
   useEffect(() => {
-    fetchApps();
-  }, []);
+    let cancelled = false;
 
-  const fetchApps = async () => {
-    try {
-      const q = query(collection(db, "apps"), where("status", "in", ["recruiting", "test-completed"]));
-      const querySnapshot = await getDocs(q);
-      const fetchedApps = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as App[];
-      setApps(fetchedApps);
-    } catch (error) {
-      console.error("Error fetching apps:", error);
-      toast.error("앱을 불러오는데 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    const fetchApps = async () => {
+      setLoading(true);
+
+      try {
+        const appsQuery = query(collection(db, "apps"), where("status", "in", ["recruiting", "test-completed"]));
+        const participationsQuery = user
+          ? query(collection(db, "participations"), where("testerId", "==", user.uid))
+          : null;
+        const usersQuery = collection(db, "users");
+
+        const [appsSnapshot, participationsSnapshot, usersSnapshot] = await Promise.all([
+          getDocs(appsQuery),
+          participationsQuery ? getDocs(participationsQuery) : Promise.resolve(null),
+          getDocs(usersQuery),
+        ]);
+
+        if (cancelled) return;
+
+        const fetchedApps = appsSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as App[];
+
+        const joinedStatuses: Record<string, JoinedBadgeStatus> = {};
+        participationsSnapshot?.docs.forEach((doc) => {
+          const participation = doc.data() as Participation;
+          const status = participation.status || "";
+          if (!["active", "pending", "completed"].includes(status)) return;
+          if (!participation.appId) return;
+          if (status === "completed") {
+            joinedStatuses[participation.appId] = "completed";
+            return;
+          }
+          if (isParticipationExpired(participation)) return;
+          joinedStatuses[participation.appId] = status === "pending" ? "pending" : "active";
+        });
+
+        const rankedUsers = usersSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as RankingUser[];
+
+        const nextDeveloperRankById = [...rankedUsers]
+          .sort((a, b) => {
+            const joinedDiff = (b.stats?.testsJoined || 0) - (a.stats?.testsJoined || 0);
+            if (joinedDiff !== 0) return joinedDiff;
+
+            const completedDiff = (b.stats?.testsCompleted || 0) - (a.stats?.testsCompleted || 0);
+            if (completedDiff !== 0) return completedDiff;
+
+            return getDisplayName(a).localeCompare(getDisplayName(b), "ko");
+          })
+          .reduce<Record<string, number>>((acc, member, index) => {
+            acc[member.id] = index + 1;
+            return acc;
+          }, {});
+
+        setApps(fetchedApps);
+        setJoinedAppStatusById(joinedStatuses);
+        setDeveloperRankById(nextDeveloperRankById);
+      } catch (error) {
+        console.error("Error fetching apps:", error);
+        toast.error("앱을 불러오는데 실패했습니다.");
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchApps();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const filteredApps = useMemo(() => {
-    return apps.filter((app) => {
-      const completed = isAppTestCompleted(app);
-      const matchesSearch =
-        app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        app.developerNickname.toLowerCase().includes(searchTerm.toLowerCase());
+    return apps
+      .filter((app) => {
+        const completed = isAppTestCompleted(app);
+        const matchesSearch =
+          app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          app.developerNickname.toLowerCase().includes(searchTerm.toLowerCase());
 
-      if (!matchesSearch) return false;
+        if (!matchesSearch) return false;
 
-      if (categoryFilter === "test-completed") {
-        return completed;
-      }
+        if (categoryFilter === "test-completed") {
+          return completed;
+        }
 
-      if (completed) {
-        // UX: 기본 탐색에서는 완료 앱을 숨김
-        return false;
-      }
+        if (completed) {
+          return false;
+        }
 
-      if (categoryFilter === "all") {
-        return true;
-      }
+        if (categoryFilter === "all") {
+          return true;
+        }
 
-      return app.category === categoryFilter;
-    });
-  }, [apps, categoryFilter, searchTerm]);
+        return app.category === categoryFilter;
+      })
+      .sort((a, b) => {
+        const rankA = a.developerId ? (developerRankById[a.developerId] ?? UNRANKED_SORT_VALUE) : UNRANKED_SORT_VALUE;
+        const rankB = b.developerId ? (developerRankById[b.developerId] ?? UNRANKED_SORT_VALUE) : UNRANKED_SORT_VALUE;
+        if (rankA !== rankB) return rankA - rankB;
+
+        const participantDiff = (b.stats?.participants || 0) - (a.stats?.participants || 0);
+        if (participantDiff !== 0) return participantDiff;
+
+        const createdAtDiff = getCreatedAtMillis(b.createdAt) - getCreatedAtMillis(a.createdAt);
+        if (createdAtDiff !== 0) return createdAtDiff;
+
+        return a.name.localeCompare(b.name, "ko");
+      });
+  }, [apps, categoryFilter, developerRankById, searchTerm]);
 
   if (loading) {
     return (
@@ -143,18 +276,40 @@ export default function ExplorePage() {
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filteredApps.map((app) => {
             const completed = isAppTestCompleted(app);
+            const joinedStatus = joinedAppStatusById[app.id];
+            const developerRank = app.developerId ? developerRankById[app.developerId] : undefined;
+            const promotionBadge = getPromotionBadge(developerRank);
+
             return (
               <Card key={app.id} className="flex flex-col">
                 <CardHeader>
                   <div className="flex items-start justify-between gap-4">
                     <CardTitle className="text-xl line-clamp-1">{app.name}</CardTitle>
-                    <Badge variant="secondary">
-                      {completed
-                        ? "테스트 완료"
-                        : categories.find((c) => c.id === app.category)?.label || app.category}
-                    </Badge>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {joinedStatus === "completed" && (
+                        <Badge className="border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-50">
+                          참여완료
+                        </Badge>
+                      )}
+                      {(joinedStatus === "active" || joinedStatus === "pending") && (
+                        <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+                          참여중
+                        </Badge>
+                      )}
+                      <Badge variant="secondary">
+                        {completed
+                          ? "테스트 완료"
+                          : categories.find((c) => c.id === app.category)?.label || app.category}
+                      </Badge>
+                    </div>
                   </div>
-                  <p className="text-sm text-muted-foreground">개발자: {app.developerNickname}</p>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <p>개발자: {app.developerNickname}</p>
+                    {promotionBadge && <Badge className={promotionBadge.className}>{promotionBadge.label}</Badge>}
+                    {promotionBadge && developerRank && (
+                      <span className="text-xs font-semibold text-slate-500">참여 랭킹 #{developerRank}</span>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent className="flex-1 space-y-4">
                   <div className="flex items-center gap-4 text-sm">
@@ -184,4 +339,3 @@ export default function ExplorePage() {
     </div>
   );
 }
-
