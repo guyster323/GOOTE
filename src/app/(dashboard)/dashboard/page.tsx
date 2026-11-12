@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
+import { OPEN_KAKAO_URL } from "@/lib/community";
 
 export default function DashboardPage() {
   const { user, profile } = useAuth();
@@ -27,21 +28,18 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
 
-    // Real-time subscription for participations
     const testsQuery = query(
       collection(db, "participations"),
       where("testerId", "==", user.uid)
     );
 
     const unsubscribeTests = onSnapshot(testsQuery, (snapshot) => {
-      // Filter active or completed on client side for more robust counting
       const activeCount = snapshot.docs.filter(d =>
         ["active", "pending", "completed"].includes(d.data().status)
       ).length;
       setStats(prev => ({ ...prev, activeTests: activeCount }));
     });
 
-    // Real-time subscription for registered apps
     const appsQuery = query(
       collection(db, "apps"),
       where("developerId", "==", user.uid)
@@ -61,11 +59,9 @@ export default function DashboardPage() {
         dailyParticipants: dailyParticipants,
       }));
 
-      // Fetch recent comments for user's apps - WITHOUT REQUIRING INDEX
       if (apps.length > 0) {
         try {
           const appIds = apps.map(app => app.id);
-          // Firestore "in" queries support max 10 items
           const q = query(
             collection(db, "comments"),
             where("appId", "in", appIds.slice(0, 10))
@@ -77,7 +73,6 @@ export default function DashboardPage() {
             appName: apps.find(a => a.id === doc.data().appId)?.name
           }));
 
-          // Sort client-side to avoid index requirement
           const sortedComments = comments.sort((a: any, b: any) => {
             const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
             const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
@@ -98,9 +93,6 @@ export default function DashboardPage() {
       unsubscribeApps();
     };
   }, [user]);
-
-  // Remove the old fetchData function call from useEffect and the function itself
-  // if not used elsewhere. In this case, it's replaced by subscriptions.
 
   if (loading) {
     return (
@@ -128,7 +120,6 @@ export default function DashboardPage() {
       <Separator className="bg-slate-200/60" />
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {/* Participation Card */}
         <Card className="relative overflow-hidden border-none shadow-lg shadow-blue-500/5 bg-white group hover:shadow-xl hover:shadow-blue-500/10 transition-all duration-300">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
             <Zap className="h-16 w-16 text-blue-600" />
@@ -149,7 +140,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Apps Card */}
         <Card className="relative overflow-hidden border-none shadow-lg shadow-indigo-500/5 bg-white group hover:shadow-xl hover:shadow-indigo-500/10 transition-all duration-300">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
             <Layout className="h-16 w-16 text-indigo-600" />
@@ -168,7 +158,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Likes Card */}
         <Card className="relative overflow-hidden border-none shadow-lg shadow-rose-500/5 bg-white group hover:shadow-xl hover:shadow-rose-500/10 transition-all duration-300">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
             <Heart className="h-16 w-16 text-rose-600" />
@@ -189,7 +178,6 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-8 lg:grid-cols-2 mt-10">
-        {/* Recent Comments Section */}
         <div className="space-y-4">
           <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
             <MessageSquare className="h-6 w-6 text-primary" />
@@ -253,7 +241,7 @@ export default function DashboardPage() {
                   카카오톡 오픈채팅에 참여하여 더 많은 개발자들과 소통하고 앱에 대한 빠른 피드백을 받으세요.
                 </p>
                 <a
-                  href="https://open.kakao.com/o/ghJ9350f"
+                  href={OPEN_KAKAO_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-block bg-white text-indigo-900 px-6 py-2 rounded-full font-bold hover:bg-indigo-50 transition-colors mt-4"
@@ -283,20 +271,27 @@ export default function DashboardPage() {
                 <div className="flex gap-3">
                   <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-black shrink-0">1</div>
                   <div className="space-y-1">
-                    <p className="text-xs font-bold text-slate-900 leading-none">그룹 가입 권한 해제</p>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">구글 그룹스 설정을 &apos;웹 상의 모든 사용자&apos;로 변경하여 참여 허들을 낮추세요.</p>
+                    <p className="text-xs font-bold text-slate-900 leading-none">그룹 생성 후 이메일 메모</p>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">groups.google.com에서 그룹을 만든 뒤 그룹 이메일을 먼저 메모해두세요.</p>
                   </div>
                 </div>
                 <div className="flex gap-3">
                   <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-black shrink-0">2</div>
                   <div className="space-y-1">
-                    <p className="text-xs font-bold text-slate-900 leading-none">데일리 메일 실행하기</p>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">오전 9시 30분 발송되는 메일의 실행 버튼을 눌러 일일 참여 인증을 완료하세요.</p>
+                    <p className="text-xs font-bold text-slate-900 leading-none">가입 권한은 누구나</p>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">개인정보 보호 설정에서 그룹 가입 권한을 &apos;누구나 가입할 수 있음&apos;으로 변경하세요.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-black shrink-0">3</div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-slate-900 leading-none">Play Console 값 메모 후 등록</p>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">비공개 테스트 &gt; 테스터 &gt; Google 그룹스에서 그룹 이메일을 넣고 Android / Web 참여 링크를 메모한 뒤 GOOTE에 입력하세요.</p>
                   </div>
                 </div>
               </div>
-              <Button size="sm" className="w-full text-[11px] font-bold h-9 bg-slate-900 hover:bg-slate-800 rounded-xl" asChild>
-                <Link href="/workflow-guide">전체 프로세스 확인하기</Link>
+              <Button size="sm" className="w-full h-9 rounded-xl bg-slate-900 text-[11px] font-bold text-white hover:bg-slate-800" asChild>
+                <Link href="/workflow-guide" className="text-white">워크플로우 보기</Link>
               </Button>
             </CardContent>
           </Card>

@@ -1,12 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {
+    root: process.cwd(),
+  },
   async redirects() {
     return [
       {
-        source: '/login',
-        destination: '/',
+        source: "/login",
+        destination: "/",
         permanent: true,
       },
     ];

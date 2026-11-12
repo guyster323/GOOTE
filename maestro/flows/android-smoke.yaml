@@ -1,0 +1,9 @@
+appId: com.goote.goote_mobile
+name: Android smoke test
+---
+- launchApp
+- assertVisible: "GOOTE Mobile"
+- assertVisible: "Ready for Android smoke tests"
+- assertVisible: "Counter: 0"
+- tapOn: "Increment counter"
+- assertVisible: "Counter: 1"

@@ -9,7 +9,7 @@ const child = spawn("firebase", deployArgs, {
   shell: true,
   env: {
     ...process.env,
-    FUNCTIONS_DISCOVERY_TIMEOUT: process.env.FUNCTIONS_DISCOVERY_TIMEOUT || "60",
+    FUNCTIONS_DISCOVERY_TIMEOUT: process.env.FUNCTIONS_DISCOVERY_TIMEOUT || "660",
   },
 });
 

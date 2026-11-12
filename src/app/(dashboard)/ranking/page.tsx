@@ -112,7 +112,7 @@ export default function RankingPage() {
           </div>
           <h1 className="text-4xl font-black tracking-tight text-slate-900">테스트 참여 순위</h1>
           <p className="text-lg text-muted-foreground">
-            GOOTE 전체 멤버의 테스트 참여 횟수를 기준으로 순위를 집계합니다.
+            GOOTE 전체 멤버의 실질 참여 횟수와 완료 수, 현재 연속 참여일을 기준으로 순위를 집계합니다.
           </p>
         </div>
         <Badge variant="outline" className="w-fit px-3 py-1 text-sm font-semibold">
@@ -218,7 +218,7 @@ export default function RankingPage() {
 
                 <div className="grid grid-cols-3 gap-3 md:min-w-[320px]">
                   <div className="rounded-2xl bg-slate-50 px-4 py-3 text-center">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">참여</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">참여 횟수</p>
                     <p className="mt-2 text-xl font-black text-slate-900">{member.testsJoined}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 px-4 py-3 text-center">

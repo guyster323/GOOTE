@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/hooks/use-auth";
 import { usePathname, useRouter } from "next/navigation";
+import { COMMUNITY_HELP_MESSAGE, OPEN_KAKAO_URL } from "@/lib/community";
 import { useEffect } from "react";
 
 export default function DashboardLayout({
@@ -15,6 +16,7 @@ export default function DashboardLayout({
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const showCommunityBanner = ["/dashboard", "/explore", "/my-tests"].includes(pathname);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -33,7 +35,7 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
+      <SidebarInset className="light-theme-readable">
         <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12 border-b bg-white/80 backdrop-blur-md saturate-150 sticky top-0 z-40 px-4 md:px-8">
           <div className="flex items-center gap-4">
             <SidebarTrigger className="-ml-1 text-slate-600 hover:text-primary hover:bg-primary/10 transition-all" />
@@ -46,6 +48,18 @@ export default function DashboardLayout({
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 md:p-8 lg:p-12 pt-4 bg-slate-50/30">
           <div className="mx-auto w-full max-w-7xl">
+            {showCommunityBanner && (
+              <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                <a
+                  href={OPEN_KAKAO_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="transition-colors hover:text-amber-700"
+                >
+                  {COMMUNITY_HELP_MESSAGE}
+                </a>
+              </div>
+            )}
             {children}
           </div>
         </div>

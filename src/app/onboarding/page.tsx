@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
+import { isAdminRole } from "@/lib/admin";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { toast } from "sonner";
 import { Loader2, MessageCircle } from "lucide-react";
 
 export default function OnboardingPage() {
-  const { user, updateProfile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const [nickname, setNickname] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
@@ -29,14 +30,13 @@ export default function OnboardingPage() {
     setIsSubmitting(true);
     try {
       const userRef = doc(db, "users", user.uid);
+      const role = isAdminRole(profile?.role) ? "admin" : "user";
 
-      // CRITICAL FIX: Create complete user document if it doesn't exist
       await setDoc(userRef, {
         uid: user.uid,
         email: user.email || "",
         nickname: nickname.trim(),
         profileImage: user.photoURL || "",
-        role: "user",
         dismissedGuides: [],
         stats: {
           appsRegistered: 0,
@@ -49,11 +49,8 @@ export default function OnboardingPage() {
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
-      // Force local update immediately
-      updateProfile({ nickname: nickname.trim() });
+      updateProfile({ nickname: nickname.trim(), role });
 
-      // CRITICAL FIX: Wait for Firestore onSnapshot to receive update before redirecting
-      // This prevents the race condition where OnboardingCheck runs before profile is updated
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       toast.success("환영합니다! 가입이 완료되었습니다.");
@@ -67,7 +64,7 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+    <div className="light-theme-readable min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <Card className="max-w-md w-full shadow-2xl border-none">
         <CardHeader className="space-y-2 text-center">
           <div className="mx-auto w-12 h-12 bg-yellow-400 rounded-2xl flex items-center justify-center mb-2 shadow-lg shadow-yellow-200">

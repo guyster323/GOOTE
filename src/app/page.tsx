@@ -12,9 +12,8 @@ import { db } from "@/lib/firebase";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const RELEASE_NOTES = [
-  "앱 둘러보기를 참여 랭킹 순으로 재정렬하고 상위 10위·20위 개발자 앱에 프로모션 뱃지를 표시",
-  "참여 랭킹 상위 개발자의 앱이 더 잘 보이도록 탐색 카드에 랭킹 배지와 순위 정보를 추가",
-  "로그인 화면 버전을 v0.9로 올리고 변경 내역 안내를 마우스 오버와 터치 모두에서 확인 가능하게 개선",
+  "히스토리의 화이트 테마 시인성을 개선",
+  "오픈 카카오톡 링크를 수정",
 ];
 
 function HomeContent() {
@@ -26,6 +25,10 @@ function HomeContent() {
   const [loadingApps, setLoadingApps] = useState(true);
   const [releaseTooltipOpen, setReleaseTooltipOpen] = useState(false);
   const releaseTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const safeRedirect =
+    redirect && redirect.startsWith("/") && !redirect.startsWith("//")
+      ? redirect
+      : "/dashboard";
 
   const clearReleaseTooltipTimer = () => {
     if (releaseTooltipTimerRef.current) {
@@ -36,9 +39,9 @@ function HomeContent() {
 
   useEffect(() => {
     if (!isLoading && user) {
-      router.push(redirect || "/dashboard");
+      router.push(safeRedirect);
     }
-  }, [user, isLoading, router, redirect]);
+  }, [user, isLoading, router, safeRedirect]);
 
   useEffect(() => {
     const fetchTestApps = async () => {
@@ -125,13 +128,13 @@ function HomeContent() {
           </div>
           <h1 className="text-4xl font-black tracking-tighter text-white inline-flex items-start justify-center gap-2">
             <span>GOOTE</span>
-            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v0.9</span>
+            <span className="text-xs text-slate-500 align-top mt-1 font-bold">v1.0</span>
             <TooltipProvider delayDuration={0}>
               <Tooltip open={releaseTooltipOpen} onOpenChange={handleReleaseTooltipOpenChange}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    aria-label="v0.9 업데이트 내역 보기"
+                    aria-label="v1.0 업데이트 내역 보기"
                     className="mt-1 text-slate-500 hover:text-slate-300 transition-colors"
                     onClick={openReleaseTooltipWithTimeout}
                   >
@@ -139,7 +142,7 @@ function HomeContent() {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="center" className="max-w-xs bg-slate-900 text-slate-100 border border-slate-700 p-3">
-                  <p className="font-bold mb-1">v0.9 업데이트</p>
+                  <p className="font-bold mb-1">v1.0 업데이트</p>
                   <ul className="list-disc pl-4 space-y-1 text-[11px] leading-relaxed">
                     {RELEASE_NOTES.map((note) => (
                       <li key={note}>{note}</li>

@@ -8,10 +8,47 @@ import {
   Mail,
   CheckCircle2,
   ArrowLeft,
-  Info
+  Info,
+  ExternalLink,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
+import { OPEN_KAKAO_URL } from "@/lib/community";
+
+const googleGroupsSteps = [
+  {
+    title: "Google Groups에서 그룹 만들기",
+    description: "https://groups.google.com/ 에서 비공개 테스트용 새 그룹을 생성하세요.",
+  },
+  {
+    title: "그룹스 이메일 메모",
+    description: "생성 직후 표시되는 그룹 이메일 주소를 꼭 메모해두세요. 이후 Play Console과 GOOTE에서 모두 사용합니다.",
+    highlight: true,
+  },
+  {
+    title: "개인정보 보호 설정 변경",
+    description: "개인정보 보호 설정에서 그룹 가입 권한을 '누구나 가입할 수 있음'으로 설정하세요. 테스터가 초대 없이 바로 가입할 수 있어야 합니다.",
+    highlight: true,
+  },
+  {
+    title: "Play Console에서 Google Groups 선택",
+    description: "구글 플레이 콘솔로 돌아가 비공개 테스트 > 테스터에서 'Google 그룹스'를 선택하세요.",
+  },
+  {
+    title: "메모한 그룹스 이메일 입력",
+    description: "Play Console의 Google Groups 입력란에 아까 메모해둔 그룹 이메일을 정확히 입력하세요.",
+    highlight: true,
+  },
+  {
+    title: "Android / Web 참여 링크 메모",
+    description: "테스트 참여 방법에 표시되는 Android 참여 링크와 Web 참여 링크를 각각 메모하세요.",
+    highlight: true,
+  },
+  {
+    title: "GOOTE 앱 등록하기에 3가지 값 입력",
+    description: "GOOTE의 '앱등록하기'에서 그룹스 이메일, Android 참여 링크, Web 참여 링크를 그대로 입력하면 됩니다.",
+  },
+];
 
 export default function WorkflowGuidePage() {
   const router = useRouter();
@@ -37,56 +74,79 @@ export default function WorkflowGuidePage() {
       </div>
 
       <div className="grid gap-8">
-        {/* Step 1: Developer Groups Setup */}
         <section className="space-y-4">
           <div className="flex items-center gap-3">
             <div className="bg-primary p-2 rounded-xl">
               <Settings className="h-6 w-6 text-white" />
             </div>
-            <h2 className="text-2xl font-black text-slate-900">1. 개발자: Google Group 설정 (핵심)</h2>
+            <h2 className="text-2xl font-black text-slate-900">1. 개발자: Google Groups 설정 (핵심)</h2>
           </div>
           <Card className="border-none shadow-md overflow-hidden bg-white">
             <CardHeader className="bg-slate-50 border-b">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Info className="h-5 w-5 text-blue-500" />
-                성공적인 모집을 위한 필수 설정
+                Play Console과 GOOTE를 오가는 실제 등록 순서
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6 space-y-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                    <p className="font-bold text-blue-900 text-sm mb-1">가입 권한 설정</p>
-                    <p className="text-sm text-blue-800/80 leading-relaxed">
-                      &quot;가입할 수 있는 사용자&quot;를 <strong>웹 상의 모든 사용자</strong>로 설정하세요. 테스터가 별도의 초대 없이 즉시 참여할 수 있습니다.
-                    </p>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="font-bold text-slate-900 text-sm mb-1">개인정보 보호</p>
-                    <p className="text-sm text-slate-600 leading-relaxed">
-                      &quot;게시물 작성&quot; 및 &quot;멤버 보기&quot;를 <strong>그룹 멤버</strong>로 한정하여 보안을 유지하세요.
-                    </p>
-                  </div>
+              <div className="flex flex-wrap gap-3">
+                <Button size="sm" className="rounded-full font-bold" asChild>
+                  <a href="https://groups.google.com/" target="_blank" rel="noopener noreferrer">
+                    Google Groups 열기 <ExternalLink className="ml-1 h-4 w-4" />
+                  </a>
+                </Button>
+                <div className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700">
+                  중요: 그룹 이메일과 Android / Web 참여 링크는 반드시 메모
                 </div>
-                <div className="bg-slate-900 text-white p-6 rounded-3xl flex flex-col justify-center">
-                  <p className="text-xs text-slate-400 uppercase font-bold tracking-widest mb-2">Checklist</p>
-                  <ul className="space-y-3">
-                    <li className="flex items-center gap-2 text-sm">
-                      <CheckCircle2 className="h-4 w-4 text-green-400" />
-                      Play Console에 그룹 이메일 등록
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <CheckCircle2 className="h-4 w-4 text-green-400" />
-                      GOOTE에 그룹 가입 링크 등록
-                    </li>
-                  </ul>
-                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {googleGroupsSteps.map((step, index) => (
+                  <div
+                    key={step.title}
+                    className={`rounded-3xl border p-5 ${
+                      step.highlight
+                        ? "border-amber-200 bg-amber-50"
+                        : "border-slate-100 bg-slate-50"
+                    }`}
+                  >
+                    <div className="mb-3 flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-black text-white">
+                        {index + 1}
+                      </div>
+                      {step.highlight && (
+                        <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-amber-700">
+                          중요
+                        </span>
+                      )}
+                    </div>
+                    <p className="font-bold text-slate-900">{step.title}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{step.description}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-3xl bg-slate-900 p-6 text-white">
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Checklist</p>
+                <ul className="mt-4 space-y-3">
+                  <li className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-green-400" />
+                    그룹 이메일을 Play Console과 GOOTE에 동일하게 입력
+                  </li>
+                  <li className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-green-400" />
+                    Android / Web 참여 링크를 메모 후 GOOTE 앱 등록하기에 입력
+                  </li>
+                  <li className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-green-400" />
+                    가입 권한은 반드시 &apos;누구나 가입할 수 있음&apos;으로 설정
+                  </li>
+                </ul>
               </div>
             </CardContent>
           </Card>
         </section>
 
-        {/* Step 2: Tester Participation */}
         <section className="space-y-4">
           <div className="flex items-center gap-3">
             <div className="bg-primary p-2 rounded-xl">
@@ -113,7 +173,6 @@ export default function WorkflowGuidePage() {
           </div>
         </section>
 
-        {/* Step 3: Daily Engagement */}
         <section className="space-y-4">
           <div className="flex items-center gap-3">
             <div className="bg-primary p-2 rounded-xl">
@@ -151,7 +210,7 @@ export default function WorkflowGuidePage() {
       <div className="flex flex-col items-center gap-6 py-10">
         <h3 className="text-xl font-bold text-slate-900">궁금한 점이 더 있으신가요?</h3>
         <Button size="lg" className="rounded-full px-8 font-black shadow-xl" asChild>
-          <a href="https://open.kakao.com/o/ghJ9350f" target="_blank" rel="noopener noreferrer">
+          <a href={OPEN_KAKAO_URL} target="_blank" rel="noopener noreferrer">
             오픈채팅에서 질문하기
           </a>
         </Button>

@@ -6,8 +6,9 @@ import { useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { collection, addDoc, serverTimestamp, doc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { doc, updateDoc, arrayUnion } from "firebase/firestore";
+import { db, functions } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
@@ -43,17 +44,54 @@ import { HelpCircle, Globe, Users, ExternalLink } from "lucide-react";
 
 const formSchema = z.object({
   name: z.string().min(1, "앱 이름은 필수입니다"),
-  androidParticipationLink: z.string().url("올바른 URL 형식이 아닙니다"),
-  webParticipationLink: z.string().url("올바른 URL 형식이 아닙니다"),
+  androidParticipationLink: z.string().url("올바른 URL 형식이 아닙니다").refine((value) => value.startsWith("https://"), "https 링크만 허용됩니다"),
+  webParticipationLink: z.string().url("올바른 URL 형식이 아닙니다").refine((value) => value.startsWith("https://"), "https 링크만 허용됩니다"),
   googleGroupEmail: z.string().email("올바른 이메일 형식이 아닙니다"),
-  googleGroupLink: z.string().url("올바른 URL 형식이 아닙니다"),
-  packageName: z.string().min(1, "패키지 이름은 필수입니다 (예: com.example.app)"),
-  description: z.string().optional(),
+  googleGroupLink: z.string().url("올바른 URL 형식이 아닙니다").refine((value) => value.startsWith("https://"), "https 링크만 허용됩니다"),
+  packageName: z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, "패키지 이름 형식이 올바르지 않습니다 (예: com.example.app)"),
+  developerConsoleId: z.string().regex(/^$|^[0-9]+$/, "Play Console 개발자 ID는 숫자만 입력하세요").optional(),
+  description: z.string().max(2000, "설명은 2000자 이하여야 합니다").optional(),
+  mailTemplate: z.string().max(4000, "템플릿은 4000자 이하여야 합니다").optional(),
   category: z.enum(["game", "utility", "productivity", "other"]),
   testDuration: z.number().min(7, "테스트 기간은 7일 이상이어야 합니다").max(30, "테스트 기간은 30일 이하여야 합니다"),
   minTesters: z.number().min(1, "최소 1명 이상의 테스터가 필요합니다").max(100, "최대 100명까지 설정 가능합니다"),
   dismissGuide: z.boolean(),
 });
+
+const registrationWorkflowSteps = [
+  {
+    title: "Google Groups에서 그룹 만들기 진행",
+    description: "https://groups.google.com/ 에서 비공개 테스트용 새 그룹을 만드세요.",
+  },
+  {
+    title: "그룹스 이메일 메모",
+    description: "생성된 그룹 이메일 주소를 꼭 메모하세요. 이후 Play Console과 GOOTE에서 모두 사용합니다.",
+    important: true,
+  },
+  {
+    title: "가입 권한을 '누구나 가입할 수 있음'으로 설정",
+    description: "개인정보 보호 설정에서 그룹 가입 권한을 변경해야 테스터가 바로 들어올 수 있습니다.",
+    important: true,
+  },
+  {
+    title: "Play Console에서 'Google 그룹스' 선택",
+    description: "비공개 테스트 > 테스터로 이동한 뒤 테스터 유형에서 'Google 그룹스'를 선택하세요.",
+  },
+  {
+    title: "메모한 그룹스 이메일 기입",
+    description: "Play Console에 아까 메모한 그룹스 이메일을 정확히 입력하세요.",
+    important: true,
+  },
+  {
+    title: "Android / Web 참여 링크 메모",
+    description: "테스트 참여 방법에 표시되는 Android 참여 링크와 Web 참여 링크를 각각 메모하세요.",
+    important: true,
+  },
+  {
+    title: "GOOTE 앱등록하기에 값 입력",
+    description: "메모해둔 그룹스 이메일, Android 참여 링크, Web 참여 링크를 아래 입력란에 그대로 넣으면 됩니다.",
+  },
+];
 
 export default function RegisterAppPage() {
   const router = useRouter();
@@ -77,7 +115,9 @@ export default function RegisterAppPage() {
       googleGroupEmail: "",
       googleGroupLink: "",
       packageName: "",
+      developerConsoleId: "",
       description: "",
+      mailTemplate: "",
       category: "utility",
       testDuration: 14,
       minTesters: 20,
@@ -99,19 +139,8 @@ export default function RegisterAppPage() {
     try {
       const { dismissGuide, ...appData } = values;
 
-      await addDoc(collection(db, "apps"), {
-        ...appData,
-        developerId: user.uid,
-        developerNickname: profile?.nickname || user.displayName || user.email,
-        status: "recruiting",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        stats: {
-          likes: 0,
-          participants: 0,
-          completedTesters: 0,
-        },
-      });
+      const createApp = httpsCallable(functions, "createApp");
+      await createApp(appData);
 
       if (dismissGuide) {
         const userRef = doc(db, "users", user.uid);
@@ -144,8 +173,8 @@ export default function RegisterAppPage() {
               <Users className="h-6 w-6 text-white" />
             </div>
             <div className="flex-1">
-              <h2 className="text-xl font-black text-blue-900">Google Group 설정 가이드</h2>
-              <p className="text-blue-700/80 font-medium">Android 비공개 테스트를 위해 꼭 필요합니다.</p>
+              <h2 className="text-xl font-black text-blue-900">Google Groups 워크플로우 안내</h2>
+              <p className="text-blue-700/80 font-medium">비공개 테스트 등록 전에 그룹 이메일과 Android / Web 참여 링크를 먼저 메모하세요.</p>
             </div>
             <Button variant="ghost" size="sm" className="text-blue-700 hover:bg-blue-100 font-bold" asChild>
               <Link href="/workflow-guide" className="flex items-center gap-1">
@@ -154,35 +183,29 @@ export default function RegisterAppPage() {
             </Button>
           </div>
 
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            등록 전에 메모할 값: 그룹스 이메일, Android 참여 링크, Web 참여 링크
+          </div>
+
           <div className="space-y-4">
-            <div className="flex gap-4">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white font-black text-sm">1</div>
-              <div className="space-y-1">
-                <p className="font-bold text-blue-900">Google Groups 그룹 생성</p>
-                <p className="text-sm text-blue-800/70">groups.google.com에서 비공개 테스트용 새 그룹을 만드세요.</p>
+            {registrationWorkflowSteps.map((step, index) => (
+              <div key={step.title} className="flex gap-4">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white font-black text-sm">
+                  {index + 1}
+                </div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-bold text-blue-900">{step.title}</p>
+                    {step.important && (
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-700 border border-amber-200">
+                        중요
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-blue-800/70">{step.description}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white font-black text-sm">2</div>
-              <div className="space-y-1">
-                <p className="font-bold text-blue-900">가입할 수 있는 사용자 설정</p>
-                <p className="text-sm text-blue-800/70">&apos;웹 상의 모든 사용자&apos;로 설정하여 테스터들이 자유롭게 가입할 수 있도록 하세요.</p>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white font-black text-sm">3</div>
-              <div className="space-y-1">
-                <p className="font-bold text-blue-900">권한 설정</p>
-                <p className="text-sm text-blue-800/70">&apos;게시물 작성&apos; 및 &apos;멤버 보기&apos; 권한을 &apos;그룹 멤버&apos;로 설정하여 개인정보를 보호하세요.</p>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white font-black text-sm">4</div>
-              <div className="space-y-1">
-                <p className="font-bold text-blue-900">Play Console 테스터 등록</p>
-                <p className="text-sm text-blue-800/70">생성한 그룹 이메일을 Play Console의 비공개 테스트 테스터 목록에 추가하세요.</p>
-              </div>
-            </div>
+            ))}
           </div>
 
           <div className="pt-4 flex items-center space-x-2 border-t border-blue-100">
@@ -220,7 +243,7 @@ export default function RegisterAppPage() {
           <div className="space-y-6 bg-slate-50/50 p-6 rounded-2xl border border-slate-100">
             <h3 className="text-lg font-black flex items-center gap-2">
               <Users className="h-5 w-5 text-primary" />
-              Google Group 정보
+              Google Groups 정보
             </h3>
 
             <FormField
@@ -232,7 +255,7 @@ export default function RegisterAppPage() {
                   <FormControl>
                     <Input placeholder="your-app-testers@googlegroups.com" {...field} className="h-12 border-slate-200 bg-white" />
                   </FormControl>
-                  <FormDescription>테스터들이 가입할 구글 그룹 이메일 주소입니다.</FormDescription>
+                  <FormDescription>Google Groups에서 메모해둔 그룹 이메일을 입력하세요.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -247,7 +270,7 @@ export default function RegisterAppPage() {
                   <FormControl>
                     <Input placeholder="https://groups.google.com/g/your-app-testers" {...field} className="h-12 border-slate-200 bg-white" />
                   </FormControl>
-                  <FormDescription>테스터들이 그룹에 가입할 수 있는 링크입니다.</FormDescription>
+                  <FormDescription>테스터가 그룹에 가입할 Google Groups 링크를 입력하세요.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -274,35 +297,42 @@ export default function RegisterAppPage() {
                           구글 플레이 테스트 링크 찾기
                         </DialogTitle>
                         <DialogDescription className="text-base">
-                          아래 3단계를 따라 링크를 복사해오세요.
+                          Play Console에서 아래 순서대로 진행하면 됩니다.
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-6 py-6">
                         <div className="flex gap-4">
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-black text-sm">1</div>
                           <div className="space-y-1">
-                            <p className="font-bold leading-none">Play Console 접속</p>
-                            <p className="text-sm text-muted-foreground">앱을 선택하고 &apos;내부 테스트&apos; 또는 &apos;비공개 테스트&apos; 메뉴로 이동하세요.</p>
+                            <p className="font-bold leading-none">비공개 테스트 &gt; 테스터로 이동</p>
+                            <p className="text-sm text-muted-foreground">구글 플레이 콘솔에서 앱을 선택한 뒤 &apos;비공개 테스트&apos;의 &apos;테스터&apos; 화면으로 이동하세요.</p>
                           </div>
                         </div>
                         <div className="flex gap-4">
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-black text-sm">2</div>
                           <div className="space-y-1">
-                            <p className="font-bold leading-none">테스터 탭 선택</p>
-                            <p className="text-sm text-muted-foreground">&apos;테스터&apos; 탭을 클릭하고 테스터 목록과 릴리스가 활성화되어 있는지 확인하세요.</p>
+                            <p className="font-bold leading-none">테스터 유형에서 Google 그룹스 선택</p>
+                            <p className="text-sm text-muted-foreground">테스터 추가 방식으로 &apos;Google 그룹스&apos;를 선택하고 그룹 이메일을 입력하세요.</p>
                           </div>
                         </div>
                         <div className="flex gap-4">
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-black text-sm">3</div>
                           <div className="space-y-1">
-                            <p className="font-bold leading-none">URL 복사</p>
-                            <p className="text-sm text-muted-foreground">하단의 &apos;웹 참여 링크&apos; 또는 &apos;Android 참여 링크&apos; 주소를 복사하여 붙여넣으세요.</p>
+                            <p className="font-bold leading-none">그룹 이메일 저장</p>
+                            <p className="text-sm text-muted-foreground">앞에서 메모한 그룹스 이메일을 정확히 넣어야 참여 링크가 정상 동작합니다.</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-4">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-black text-sm">4</div>
+                          <div className="space-y-1">
+                            <p className="font-bold leading-none">Android / Web 참여 링크 복사</p>
+                            <p className="text-sm text-muted-foreground">테스트 참여 방법에 표시되는 Android 참여 링크와 Web 참여 링크를 각각 메모해 아래 입력란에 붙여넣으세요.</p>
                           </div>
                         </div>
                       </div>
                       <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                         <p className="text-xs text-slate-500 leading-relaxed">
-                          * 비공개 테스트의 경우 테스터 이메일 그룹이 등록되어 있어야 링크가 정상 작동합니다.
+                          * 비공개 테스트는 Google Groups와 참여 링크 2개를 모두 준비해둔 뒤 등록하는 것이 가장 안전합니다.
                         </p>
                       </div>
                     </DialogContent>
@@ -312,7 +342,7 @@ export default function RegisterAppPage() {
                   <Input placeholder="https://play.google.com/apps/testing/..." {...field} className="h-12 border-slate-200" />
                 </FormControl>
                 <FormDescription>
-                  Android 앱용 Opt-in 링크를 입력하세요.
+                  Play Console에서 메모한 Android 참여 링크를 입력하세요.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -329,50 +359,65 @@ export default function RegisterAppPage() {
                   <Input placeholder="https://play.google.com/apps/testing/..." {...field} className="h-12 border-slate-200" />
                 </FormControl>
                 <FormDescription>
-                  Web용 Opt-in 링크를 입력하세요.
+                  Play Console에서 메모한 Web 참여 링크를 입력하세요.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-            <FormField
-              control={form.control}
-              name="packageName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-slate-700 font-bold">패키지 이름</FormLabel>
-                  <FormControl>
-                    <Input placeholder="com.example.myapp" {...field} className="h-12 border-slate-200" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <FormField
+            control={form.control}
+            name="packageName"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-slate-700 font-bold">패키지 이름</FormLabel>
+                <FormControl>
+                  <Input placeholder="com.example.myapp" {...field} className="h-12 border-slate-200" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="developerConsoleId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-slate-700 font-bold">Play Console 개발자 ID (선택)</FormLabel>
+                <FormControl>
+                  <Input placeholder="12345678901234567890" {...field} className="h-12 border-slate-200" inputMode="numeric" />
+                </FormControl>
+                <FormDescription>승인 메일에서 Play Console 내부 테스트 화면으로 바로 이동시키려면 입력하세요.</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           <FormField
             control={form.control}
             name="category"
             render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-slate-700 font-bold">카테고리</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger className="h-12 border-slate-200 bg-white">
-                        <SelectValue placeholder="카테고리 선택" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent className="bg-white text-slate-900">
-                      <SelectItem value="game">게임</SelectItem>
-                      <SelectItem value="utility">유틸리티</SelectItem>
-                      <SelectItem value="productivity">생산성</SelectItem>
-                      <SelectItem value="other">기타</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormItem>
+                <FormLabel className="text-slate-700 font-bold">카테고리</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger className="h-12 border-slate-200 bg-white">
+                      <SelectValue placeholder="카테고리 선택" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent className="bg-white text-slate-900">
+                    <SelectItem value="game">게임</SelectItem>
+                    <SelectItem value="utility">유틸리티</SelectItem>
+                    <SelectItem value="productivity">생산성</SelectItem>
+                    <SelectItem value="other">기타</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           <FormField
             control={form.control}
@@ -387,6 +432,36 @@ export default function RegisterAppPage() {
                     {...field}
                   />
                 </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="mailTemplate"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-slate-700 font-bold">커스텀 메일 템플릿 (선택)</FormLabel>
+                <FormControl>
+                  <Textarea
+                    placeholder="일일 체크인 알림 메일 본문을 커스터마이징하고 싶다면 작성해주세요. 미입력 시 기본 템플릿이 사용됩니다."
+                    className="resize-y min-h-[160px] border-slate-200 focus:ring-primary font-mono text-sm"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  <div className="mt-2 bg-slate-50 border border-slate-100 p-4 rounded-xl space-y-2 text-slate-600">
+                    <p className="text-xs font-bold text-slate-700">사용 가능한 치환자:</p>
+                    <ul className="text-xs text-slate-500 list-disc pl-4 space-y-1">
+                      <li><code>{"{testerNickname}"}</code> : 테스터의 닉네임</li>
+                      <li><code>{"{appName}"}</code> : 등록된 앱 이름</li>
+                      <li><code>{"{trackLinkAndroid}"}</code> : Android 트랙 참여 인증 링크</li>
+                      <li><code>{"{trackLinkWeb}"}</code> : Web 트랙 참여 인증 링크</li>
+                    </ul>
+                    <p className="text-[11px] text-amber-600 font-medium">* 템플릿에 인증 링크 치환자를 꼭 포함해야 테스터가 참여 체크인을 완료할 수 있습니다.</p>
+                  </div>
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
