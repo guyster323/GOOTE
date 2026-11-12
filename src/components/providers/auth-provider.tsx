@@ -20,30 +20,38 @@ export default function AuthProvider({
       setUser(user);
 
       if (user) {
-        // Force loading state until profile is fully fetched
         setIsLoading(true);
 
-        const unsubscribeProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            console.log("✅ Profile loaded for:", user.uid, "nickname:", data.nickname || "MISSING");
-            setProfile(data as any);
-          } else {
-            console.log("⚠️ No profile document found for:", user.uid, "- Will create on onboarding");
-            setProfile(null);
-            setIsLoading(false); // Only set loading false if no doc exists
+        const unsubscribeProfile = onSnapshot(
+          doc(db, "users", user.uid),
+          (snapshot) => {
+            if (snapshot.exists()) {
+              const data = snapshot.data();
+              const nextProfile = {
+                ...data,
+                role: data.role === "admin" ? "admin" : "user",
+              };
+
+              console.log("✅ Profile loaded for:", user.uid, "nickname:", data.nickname || "MISSING");
+              setProfile(nextProfile as any);
+            } else {
+              console.log("⚠️ No profile document found for:", user.uid, "- Will create on onboarding");
+              setProfile(null);
+              setIsLoading(false);
+            }
+          },
+          (error) => {
+            console.error("❌ Profile subscription error:", error);
+            setIsLoading(false);
           }
-        }, (error) => {
-          console.error("❌ Profile subscription error:", error);
-          setIsLoading(false);
-        });
+        );
 
         return () => unsubscribeProfile();
-      } else {
-        console.log("🚪 No user authenticated - clearing profile");
-        setProfile(null);
-        setIsLoading(false);
       }
+
+      console.log("🚪 No user authenticated - clearing profile");
+      setProfile(null);
+      setIsLoading(false);
     });
 
     return () => unsubscribeAuth();

@@ -1,6 +1,23 @@
 import { google } from "googleapis";
 import * as nodemailer from "nodemailer";
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v1";
+
+const MAIL_RETRY_DELAYS_MS = [1500, 4000, 8000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableMailError = (error: any) => {
+  const responseCode = Number(error?.responseCode || 0);
+  const code = typeof error?.code === "string" ? error.code : "";
+  const response = typeof error?.response === "string" ? error.response : "";
+
+  if (responseCode === 421) return true;
+  if (responseCode >= 400 && responseCode < 500) return true;
+  if (["ETIMEDOUT", "ECONNECTION", "ESOCKET", "ECONNRESET", "EAI_AGAIN"].includes(code)) return true;
+  if (response.includes("Temporary System Problem")) return true;
+
+  return false;
+};
 
 /**
  * Sends an email using Gmail API with OAuth2.
@@ -29,55 +46,76 @@ export async function sendGmail({
   }
 }) {
   const OAuth2 = google.auth.OAuth2;
-  const oauth2Client = new OAuth2(
-    credentials.clientId,
-    credentials.clientSecret,
-    "https://developers.google.com/oauthplayground"
-  );
+  let lastError: unknown;
 
-  oauth2Client.setCredentials({
-    refresh_token: credentials.refreshToken,
-  });
+  for (let attempt = 1; attempt <= MAIL_RETRY_DELAYS_MS.length + 1; attempt += 1) {
+    const oauth2Client = new OAuth2(
+      credentials.clientId,
+      credentials.clientSecret,
+      "https://developers.google.com/oauthplayground"
+    );
 
-  try {
-    const accessToken = await new Promise<string>((resolve, reject) => {
-      oauth2Client.getAccessToken((err, token) => {
-        if (err || !token) {
-          reject("Failed to create access token : " + err);
-        } else {
-          resolve(token);
-        }
-      });
+    oauth2Client.setCredentials({
+      refresh_token: credentials.refreshToken,
     });
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        type: "OAuth2",
-        user: credentials.userEmail,
-        clientId: credentials.clientId,
-        clientSecret: credentials.clientSecret,
-        refreshToken: credentials.refreshToken,
-        accessToken: accessToken,
-      },
-    } as any);
+    try {
+      const accessToken = await new Promise<string>((resolve, reject) => {
+        oauth2Client.getAccessToken((err, token) => {
+          if (err || !token) {
+            reject(new Error("Failed to create access token"));
+          } else {
+            resolve(token);
+          }
+        });
+      });
 
-    const mailOptions: any = {
-      from: `GOOTE <${credentials.userEmail}>`,
-      to,
-      subject,
-      html,
-    };
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          type: "OAuth2",
+          user: credentials.userEmail,
+          clientId: credentials.clientId,
+          clientSecret: credentials.clientSecret,
+          refreshToken: credentials.refreshToken,
+          accessToken: accessToken,
+        },
+      } as any);
 
-    if (replyTo) {
-      mailOptions.replyTo = replyTo;
+      const mailOptions: any = {
+        from: `GOOTE <${credentials.userEmail}>`,
+        to,
+        subject,
+        html,
+      };
+
+      if (replyTo) {
+        mailOptions.replyTo = replyTo;
+      }
+
+      const result = await transporter.sendMail(mailOptions);
+      functions.logger.info("Email sent successfully", { messageId: result.messageId, attempt });
+      return result;
+    } catch (error) {
+      lastError = error;
+      const shouldRetry = attempt <= MAIL_RETRY_DELAYS_MS.length && isRetryableMailError(error);
+
+      if (!shouldRetry) {
+        functions.logger.error("Error sending email via Gmail API", error);
+        throw error;
+      }
+
+      functions.logger.warn("Retrying email send after temporary Gmail failure", {
+        attempt,
+        nextDelayMs: MAIL_RETRY_DELAYS_MS[attempt - 1],
+        responseCode: (error as any)?.responseCode,
+        code: (error as any)?.code,
+      });
+
+      await sleep(MAIL_RETRY_DELAYS_MS[attempt - 1]);
     }
-
-    const result = await transporter.sendMail(mailOptions);
-    functions.logger.info("Email sent successfully", { messageId: result.messageId });
-    return result;
-  } catch (error) {
-    functions.logger.error("Error sending email via Gmail API", error);
-    throw error;
   }
+
+  functions.logger.error("Error sending email via Gmail API", lastError);
+  throw lastError;
 }

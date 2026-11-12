@@ -5,7 +5,24 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f8fafc;
+  --muted-foreground: #475569;
+  --accent: #eff6ff;
+  --accent-foreground: #0f172a;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #cbd5e1;
+  --input: #cbd5e1;
+  --ring: #2563eb;
   --sidebar: hsl(0 0% 98%);
   --sidebar-foreground: hsl(240 5.3% 26.1%);
   --sidebar-primary: hsl(240 5.9% 10%);
@@ -19,8 +36,23 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-border: hsl(240 5.9% 90%);
-  --color-ring: hsl(240 5.9% 10%);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -37,7 +69,23 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
-    --border: hsl(240 3.7% 15.9%);
+    --card: #111827;
+    --card-foreground: #ededed;
+    --popover: #111827;
+    --popover-foreground: #ededed;
+    --primary: #60a5fa;
+    --primary-foreground: #020617;
+    --secondary: #1e293b;
+    --secondary-foreground: #f8fafc;
+    --muted: #172033;
+    --muted-foreground: #94a3b8;
+    --accent: #1e293b;
+    --accent-foreground: #f8fafc;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #27272a;
+    --input: #27272a;
+    --ring: #60a5fa;
   }
 }
 
@@ -50,13 +98,29 @@ body {
 .dark {
   --sidebar: hsl(240 5.9% 10%);
   --sidebar-foreground: hsl(240 4.8% 95.9%);
+  --card: #111827;
+  --card-foreground: #ededed;
+  --popover: #111827;
+  --popover-foreground: #ededed;
+  --primary: #60a5fa;
+  --primary-foreground: #020617;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #172033;
+  --muted-foreground: #94a3b8;
+  --accent: #1e293b;
+  --accent-foreground: #f8fafc;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
   --sidebar-primary: hsl(224.3 76.3% 48%);
   --sidebar-primary-foreground: hsl(0 0% 100%);
   --sidebar-accent: hsl(240 3.7% 15.9%);
   --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
   --sidebar-border: hsl(240 3.7% 15.9%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
-  --border: hsl(240 3.7% 15.9%);
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #60a5fa;
 }
 
 @layer base {
@@ -66,5 +130,27 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  /* Restrict text contrast boosts to light-surface routes so intentional dark sections stay intact. */
+  @media (prefers-color-scheme: light) {
+    html:not(.dark) .light-theme-readable .text-slate-300 {
+      color: #64748b;
+    }
+
+    html:not(.dark) .light-theme-readable .text-slate-400 {
+      color: #475569;
+    }
+
+    html:not(.dark) .light-theme-readable .text-slate-500 {
+      color: #334155;
+    }
+
+    html:not(.dark) .light-theme-readable .text-slate-600,
+    html:not(.dark) .light-theme-readable .text-zinc-600 {
+      color: #1e293b;
+    }
   }
 }

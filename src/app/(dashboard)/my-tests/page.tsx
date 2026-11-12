@@ -20,8 +20,12 @@ import { toast } from "sonner";
 import { Loader2, CheckCircle2, Calendar, Handshake } from "lucide-react";
 import { format } from "date-fns";
 import { createDailyTrackUrl } from "@/lib/daily-track";
+import { closeExternalWindow, navigateExternalWindow, openPendingExternalWindow } from "@/lib/external-window";
 import {
+  getEffectiveConsecutiveDays,
+  getKstDateString,
   getParticipationStartDate,
+  hasParticipationCheckedInOnDate,
   isAppTestCompleted,
   isParticipationExpired,
 } from "@/lib/test-period";
@@ -32,6 +36,7 @@ interface Participation {
   appName: string;
   targetDays: number;
   consecutiveDays: number;
+  lastCheckIn?: string | null;
   dailyChecks: Record<string, boolean>;
   status: string;
   startDate?: unknown;
@@ -88,6 +93,7 @@ export default function MyTestsPage() {
                 appName: data.appName || "이름 없는 앱",
                 targetDays: data.targetDays || 14,
                 consecutiveDays: data.consecutiveDays || 0,
+                lastCheckIn: data.lastCheckIn || null,
                 dailyChecks: data.dailyChecks || {},
               };
             })
@@ -184,32 +190,35 @@ export default function MyTestsPage() {
   }, [user]);
 
   const handleCheckIn = async (participation: Participation) => {
-    const today = format(new Date(), "yyyy-MM-dd");
+    const today = getKstDateString(new Date());
 
-    if (participation.dailyChecks[today]) {
+    if (hasParticipationCheckedInOnDate(participation, today)) {
       toast.info("오늘 이미 출석 체크를 완료했습니다!");
       return;
     }
 
     setCheckingInId(participation.id);
+    const popup = openPendingExternalWindow();
+
     try {
       const trackUrl = await createDailyTrackUrl(participation.id, "android");
-      const opened = window.open(trackUrl, "_blank", "noopener,noreferrer");
-
-      if (!opened) {
-        window.location.href = trackUrl;
+      if (popup) {
+        navigateExternalWindow(popup, trackUrl);
+      } else {
+        window.location.assign(trackUrl);
       }
 
       toast.success(`${participation.appName} Android 링크를 열었습니다. 실행 시 오늘 참여가 반영됩니다.`);
     } catch (error) {
       console.error("Error checking in:", error);
+      closeExternalWindow(popup);
       toast.error("출석 체크에 실패했습니다. 다시 시도해주세요.");
     } finally {
       setCheckingInId(null);
     }
   };
 
-  const todayStr = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+  const todayStr = useMemo(() => getKstDateString(new Date()), []);
 
   const safeDateFormat = (date: Date | null) => {
     if (!date) return "미정";
@@ -244,8 +253,9 @@ export default function MyTestsPage() {
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {participations.map((p) => {
-            const progress = ((p.consecutiveDays || 0) / (p.targetDays || 14)) * 100;
-            const isCheckedInToday = p.dailyChecks ? p.dailyChecks[todayStr] : false;
+            const effectiveConsecutiveDays = getEffectiveConsecutiveDays(p);
+            const progress = (effectiveConsecutiveDays / (p.targetDays || 14)) * 100;
+            const isCheckedInToday = hasParticipationCheckedInOnDate(p, todayStr);
             const startDate = getParticipationStartDate(p);
             const cross = crossStatusByAppId[p.appId];
             const developer = appInfoById[p.appId]?.developerId;
@@ -272,7 +282,7 @@ export default function MyTestsPage() {
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">진행률</span>
                       <span className="font-medium">
-                        {p.consecutiveDays || 0} / {p.targetDays || 14} 일
+                        {effectiveConsecutiveDays} / {p.targetDays || 14} 일
                       </span>
                     </div>
                     <Progress value={progress} className="h-2" />
@@ -332,4 +342,3 @@ export default function MyTestsPage() {
     </div>
   );
 }
-

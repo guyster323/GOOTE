@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { doc, collection, addDoc, query, where, getDocs, serverTimestamp, Timestamp, onSnapshot, deleteDoc } from "firebase/firestore";
+import { doc, collection, addDoc, query, where, getDocs, serverTimestamp, Timestamp, onSnapshot, deleteDoc, updateDoc } from "firebase/firestore";
 import { db, functions } from "@/lib/firebase";
 import { httpsCallable } from "firebase/functions";
 import { useAuth } from "@/hooks/use-auth";
@@ -10,12 +10,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Users, Calendar, ExternalLink, MessageSquare, Send, User, Clock, CheckCircle2, Smartphone, Globe, Handshake } from "lucide-react";
+import { Loader2, Users, Calendar, ExternalLink, MessageSquare, Send, User, Clock, CheckCircle2, Smartphone, Globe, Handshake, ArrowLeft } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
 import { createDailyTrackUrl } from "@/lib/daily-track";
+import { navigateExternalWindow, openPendingExternalWindow } from "@/lib/external-window";
+import { isValidGoogleGroupUrl } from "@/lib/google-groups";
+import { resolvePlayParticipationLink } from "@/lib/play-links";
 import { isAppTestCompleted } from "@/lib/test-period";
 
 export default function AppDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -29,6 +32,13 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
+  const [replyTargetName, setReplyTargetName] = useState("");
+  const [replyComment, setReplyComment] = useState("");
+  const [submittingReplyToCommentId, setSubmittingReplyToCommentId] = useState<string | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editCommentValue, setEditCommentValue] = useState("");
+  const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
   const [showParticipationSteps, setShowParticipationSteps] = useState(false);
   const [participation, setParticipation] = useState<any>(null);
   const [checkingParticipation, setCheckingParticipation] = useState(false);
@@ -188,21 +198,72 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     }
   };
 
+  const getCommentTimestamp = (timestamp: any) => {
+    if (!timestamp) return 0;
+    return timestamp.toMillis ? timestamp.toMillis() : 0;
+  };
+
+  const handleBackNavigation = useCallback(() => {
+    if (typeof window === "undefined") {
+      router.push("/explore");
+      return;
+    }
+
+    const hasSameOriginReferrer = document.referrer.startsWith(window.location.origin);
+    const hasBrowserHistory = window.history.length > 1;
+
+    if (hasSameOriginReferrer || hasBrowserHistory) {
+      router.back();
+      return;
+    }
+
+    router.push("/explore");
+  }, [router]);
+
   const openTrackedDailyLink = async (type: "android" | "web") => {
-    const directLink = type === "web" ? app?.webParticipationLink : app?.androidParticipationLink;
+    const directLink = resolvePlayParticipationLink({
+      type,
+      androidParticipationLink: app?.androidParticipationLink,
+      webParticipationLink: app?.webParticipationLink,
+    });
     if (!directLink) return;
 
     try {
+      const parsed = new URL(directLink);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        toast.error("안전하지 않은 외부 링크 형식입니다.");
+        return;
+      }
+    } catch {
+      toast.error("외부 링크 형식이 올바르지 않습니다.");
+      return;
+    }
+
+    const popup = openPendingExternalWindow();
+
+    try {
       if (!participation?.id) {
-        window.open(directLink, "_blank");
+        if (popup) {
+          navigateExternalWindow(popup, directLink);
+        } else {
+          window.location.assign(directLink);
+        }
         return;
       }
 
       const trackUrl = await createDailyTrackUrl(participation.id, type);
-      window.open(trackUrl, "_blank", "noopener,noreferrer");
+      if (popup) {
+        navigateExternalWindow(popup, trackUrl);
+      } else {
+        window.location.assign(trackUrl);
+      }
     } catch (error) {
       console.error("Error opening tracked daily link:", error);
-      window.open(directLink, "_blank", "noopener,noreferrer");
+      if (popup) {
+        navigateExternalWindow(popup, directLink);
+      } else {
+        window.location.assign(directLink);
+      }
     }
   };
 
@@ -212,27 +273,17 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       return false;
     }
 
-    try {
-      const parsed = new URL(app.googleGroupLink);
-      const isGoogleGroups =
-        parsed.hostname.includes("groups.google.com") &&
-        parsed.pathname.includes("/g/");
-
-      if (!isGoogleGroups) {
-        toast.error("그룹스 링크 형식이 올바르지 않습니다. 개발자에게 링크 수정을 요청해주세요.");
-        return false;
-      }
-    } catch {
+    if (!isValidGoogleGroupUrl(app.googleGroupLink)) {
       toast.error("그룹스 링크 형식이 올바르지 않습니다. 개발자에게 링크 수정을 요청해주세요.");
       return false;
     }
 
-    const openedWindow = window.open(app.googleGroupLink, "_blank");
-    if (!openedWindow) {
-      toast.error("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.");
-      return false;
+    const popup = openPendingExternalWindow();
+    if (popup) {
+      navigateExternalWindow(popup, app.googleGroupLink);
+    } else {
+      window.location.assign(app.googleGroupLink);
     }
-
     return true;
   };
 
@@ -243,8 +294,8 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       return;
     }
 
-    const linkOpened = openGoogleGroupLink();
-    if (!linkOpened) {
+    if (!app?.googleGroupLink) {
+      toast.error("이 앱의 그룹스 가입 링크가 등록되지 않았습니다.");
       return;
     }
 
@@ -307,6 +358,30 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
       setRequesting(false);
     }
   };
+  const closeReplyComposer = () => {
+    setReplyingToCommentId(null);
+    setReplyTargetName("");
+    setReplyComment("");
+  };
+
+  const closeEditComposer = () => {
+    setEditingCommentId(null);
+    setEditCommentValue("");
+  };
+
+  const handleOpenReplyComposer = (comment: any) => {
+    closeEditComposer();
+    setReplyingToCommentId(comment.parentId || comment.id);
+    setReplyTargetName(comment.userName || "익명");
+    setReplyComment("");
+  };
+
+  const handleOpenEditComposer = (comment: any) => {
+    closeReplyComposer();
+    setEditingCommentId(comment.id);
+    setEditCommentValue(comment.content || "");
+  };
+
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -318,19 +393,18 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     const commentContent = newComment.trim();
     setSubmittingComment(true);
 
-    // Optimistic comment object
     const optimisticComment = {
       id: "temp-" + Date.now(),
       appId: id,
       userId: user.uid,
       userName: profile?.nickname || user.displayName || "익명",
       content: commentContent,
+      parentId: null,
       createdAt: Timestamp.now()
     };
 
     try {
-      // Add to local state immediately
-      setComments([optimisticComment, ...comments]);
+      setComments((previousComments: any[]) => [optimisticComment, ...previousComments]);
       setNewComment("");
 
       await addDoc(collection(db, "comments"), {
@@ -338,19 +412,111 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
         userId: user.uid,
         userName: profile?.nickname || user.displayName || "익명",
         content: commentContent,
+        parentId: null,
         createdAt: serverTimestamp()
       });
 
       toast.success("댓글이 등록되었습니다.");
-      // Background fetch to sync ID and exact server timestamp
       setTimeout(() => fetchComments(), 1000);
     } catch (error) {
       console.error("Error adding comment:", error);
       toast.error("댓글 등록에 실패했습니다.");
-      // Revert local change on error
-      setComments(comments.filter(c => c.id !== optimisticComment.id));
+      setComments((previousComments: any[]) => previousComments.filter((comment) => comment.id !== optimisticComment.id));
     } finally {
       setSubmittingComment(false);
+    }
+  };
+
+  const handleSubmitReply = async (e: React.FormEvent, parentId: string) => {
+    e.preventDefault();
+    if (!user) {
+      toast.error("답글을 작성하려면 로그인이 필요합니다.");
+      return;
+    }
+
+    const replyContent = replyComment.trim();
+    if (!replyContent) return;
+
+    setSubmittingReplyToCommentId(parentId);
+
+    const optimisticReply = {
+      id: "temp-reply-" + Date.now(),
+      appId: id,
+      userId: user.uid,
+      userName: profile?.nickname || user.displayName || "익명",
+      content: replyContent,
+      parentId,
+      createdAt: Timestamp.now()
+    };
+
+    try {
+      setComments((previousComments: any[]) => [...previousComments, optimisticReply]);
+      closeReplyComposer();
+
+      await addDoc(collection(db, "comments"), {
+        appId: id,
+        userId: user.uid,
+        userName: profile?.nickname || user.displayName || "익명",
+        content: replyContent,
+        parentId,
+        createdAt: serverTimestamp()
+      });
+
+      toast.success("답글이 등록되었습니다.");
+      setTimeout(() => fetchComments(), 1000);
+    } catch (error) {
+      console.error("Error adding reply:", error);
+      toast.error("답글 등록에 실패했습니다.");
+      setComments((previousComments: any[]) => previousComments.filter((comment) => comment.id !== optimisticReply.id));
+    } finally {
+      setSubmittingReplyToCommentId(null);
+    }
+  };
+
+  const handleSaveCommentEdit = async (e: React.FormEvent, commentId: string) => {
+    e.preventDefault();
+
+    const nextContent = editCommentValue.trim();
+    if (!nextContent) {
+      toast.error("댓글 내용을 입력해주세요.");
+      return;
+    }
+
+    const previousComment = comments.find((comment) => comment.id === commentId);
+    if (!previousComment) return;
+
+    setSavingCommentId(commentId);
+    closeReplyComposer();
+
+    try {
+      setComments((previousComments: any[]) =>
+        previousComments.map((comment) =>
+          comment.id === commentId
+            ? {
+                ...comment,
+                content: nextContent,
+                editedAt: Timestamp.now()
+              }
+            : comment
+        )
+      );
+
+      await updateDoc(doc(db, "comments", commentId), {
+        content: nextContent,
+        editedAt: serverTimestamp()
+      });
+
+      toast.success("댓글이 수정되었습니다.");
+      closeEditComposer();
+      setTimeout(() => fetchComments(), 1000);
+    } catch (error) {
+      console.error("Error updating comment:", error);
+      toast.error("댓글 수정에 실패했습니다.");
+      setComments((previousComments: any[]) =>
+        previousComments.map((comment) => (comment.id === commentId ? previousComment : comment))
+      );
+    } finally {
+      setSavingCommentId(null);
     }
   };
 
@@ -365,12 +531,110 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
   if (!app) return null;
 
   const isCompletedApp = isAppTestCompleted(app);
+  const isAdmin = profile?.role === "admin";
+  const topLevelComments = comments
+    .filter((comment) => !comment.parentId)
+    .sort((a, b) => getCommentTimestamp(b.createdAt) - getCommentTimestamp(a.createdAt));
+  const replyGroups = comments.reduce((groups: Record<string, any[]>, comment) => {
+    if (!comment.parentId) {
+      return groups;
+    }
+
+    const nextGroup = groups[comment.parentId] || [];
+    nextGroup.push(comment);
+    groups[comment.parentId] = nextGroup.sort(
+      (a, b) => getCommentTimestamp(a.createdAt) - getCommentTimestamp(b.createdAt)
+    );
+    return groups;
+  }, {} as Record<string, any[]>);
+
+  const renderCommentCard = (comment: any, isReply = false) => {
+    const canManageComment = !!user && (comment.userId === user.uid || isAdmin);
+    const isEditing = editingCommentId === comment.id;
+    const isSaving = savingCommentId === comment.id;
+    const contentPaddingClass = isReply ? "" : "pl-12";
+
+    return (
+      <div className={isReply ? "rounded-2xl border border-slate-100 bg-slate-50/80 p-4" : ""}>
+        <div className="mb-2 flex items-start justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100">
+              <User className="h-5 w-5 text-slate-500" />
+            </div>
+            <div>
+              <p className="leading-tight font-bold text-slate-900">{comment.userName}</p>
+              <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {safeFormatDate(comment.createdAt)}
+                </span>
+                {comment.editedAt ? <span className="font-semibold">수정됨</span> : null}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {user ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleOpenReplyComposer(comment)}
+                className="h-8 px-2 text-xs text-slate-500 hover:text-slate-900"
+              >
+                답글
+              </Button>
+            ) : null}
+            {canManageComment ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleOpenEditComposer(comment)}
+                className="h-8 px-2 text-xs text-slate-500 hover:text-slate-900"
+              >
+                수정
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {isEditing ? (
+          <form onSubmit={(e) => handleSaveCommentEdit(e, comment.id)} className={`${contentPaddingClass} mt-3 space-y-3`}>
+            <Textarea
+              value={editCommentValue}
+              onChange={(e) => setEditCommentValue(e.target.value)}
+              disabled={isSaving}
+              className="min-h-[96px] resize-none rounded-2xl border-slate-200 focus:ring-primary"
+            />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={closeEditComposer} disabled={isSaving}>
+                취소
+              </Button>
+              <Button type="submit" disabled={!editCommentValue.trim() || isSaving}>
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "저장"}
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <p className={`whitespace-pre-wrap text-slate-600 leading-relaxed ${contentPaddingClass}`}>
+            {comment.content}
+          </p>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10 px-4">
+    <div className="light-theme-readable min-h-screen bg-slate-50 py-10 px-4">
       <div className="max-w-3xl mx-auto space-y-8">
-        <Button variant="ghost" onClick={() => router.back()} className="mb-4">
-          ← 뒤로 가기
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={handleBackNavigation}
+          className="mb-4 min-h-11 px-3 touch-manipulation"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          뒤로 가기
         </Button>
 
         <Card className="border-none shadow-2xl overflow-hidden rounded-3xl">
@@ -543,18 +807,18 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
                       <h4 className="font-bold text-slate-900 text-lg">구글 그룹스 가입</h4>
                     </div>
                     <p className="text-sm text-slate-700 ml-11 leading-relaxed mb-6">
-                      테스터 권한을 얻기 위해 먼저 아래 버튼을 눌러 구글 그룹스에 가입해주세요.<br />
-                      가입 시 <strong>&quot;그룹 가입&quot;</strong> 버튼을 누르면 즉시 테스터로 등록됩니다.
+                      테스터 권한을 얻기 위해 먼저 구글 그룹스에 가입해주세요.<br />
+                      이미 가입을 마쳤다면 2단계 버튼으로 바로 참여 링크를 활성화할 수 있습니다.
                     </p>
 
                     <Button
                       size="lg"
                       className="ml-11 h-14 px-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black shadow-xl"
-                      disabled={requesting}
-                      onClick={handleJoinRequest}
+                      disabled={!app.googleGroupLink}
+                      onClick={openGoogleGroupLink}
                     >
-                      {requesting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Users className="mr-2 h-5 w-5" />}
-                      그룹스 가입 및 참여 완료
+                      <Users className="mr-2 h-5 w-5" />
+                      구글 그룹스 열기
                     </Button>
 
                     {!app.googleGroupLink && (
@@ -564,14 +828,23 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
                     )}
                   </div>
 
-                  <div className="p-6 rounded-2xl border bg-slate-50 border-slate-200 opacity-50">
+                  <div className="p-6 rounded-2xl border bg-slate-50 border-slate-200">
                     <div className="flex items-center gap-3 mb-2">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-300 text-white text-sm font-black">2</span>
-                      <h4 className="font-bold text-slate-500 text-lg">앱 다운로드 및 실행</h4>
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white text-sm font-black">2</span>
+                      <h4 className="font-bold text-slate-900 text-lg">참여 링크 활성화</h4>
                     </div>
-                    <p className="text-sm text-slate-500 ml-11">
-                      1단계를 완료하면 이곳에 플레이스토어 다운로드 링크가 나타납니다.
+                    <p className="text-sm text-slate-600 ml-11 mb-6">
+                      그룹 가입 후 아래 버튼을 누르면 테스터 등록이 완료되고 참여 링크가 바로 나타납니다.
                     </p>
+                    <Button
+                      size="lg"
+                      className="ml-11 h-14 px-8 rounded-xl bg-primary hover:bg-primary/90 text-white font-black shadow-xl shadow-primary/20"
+                      disabled={requesting || !app.googleGroupLink}
+                      onClick={handleJoinRequest}
+                    >
+                      {requesting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
+                      가입 완료 후 참여 링크 활성화
+                    </Button>
                   </div>
                 </div>
               )}
@@ -619,31 +892,61 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
 
             <div className="space-y-4">
               {comments.length === 0 ? (
-                <div className="text-center py-10 text-slate-400">
-                  <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                <div className="py-10 text-center text-slate-400">
+                  <MessageSquare className="mx-auto mb-2 h-10 w-10 opacity-20" />
                   첫 번째 피드백을 남겨보세요!
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
-                  {comments.map((comment) => (
+                  {topLevelComments.map((comment) => (
                     <div key={comment.id} className="py-6 first:pt-0">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center">
-                            <User className="h-5 w-5 text-slate-500" />
+                      {renderCommentCard(comment)}
+
+                      {replyingToCommentId === comment.id ? (
+                        <form
+                          onSubmit={(e) => handleSubmitReply(e, comment.id)}
+                          className="mt-4 ml-12 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                        >
+                          <p className="text-xs font-semibold text-slate-500">
+                            {replyTargetName ? `${replyTargetName}님에게 답글 작성 중` : "답글 작성 중"}
+                          </p>
+                          <Textarea
+                            placeholder="답글을 입력해주세요."
+                            value={replyComment}
+                            onChange={(e) => setReplyComment(e.target.value)}
+                            disabled={submittingReplyToCommentId === comment.id}
+                            className="min-h-[88px] resize-none rounded-2xl border-slate-200 focus:ring-primary"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={closeReplyComposer}
+                              disabled={submittingReplyToCommentId === comment.id}
+                            >
+                              취소
+                            </Button>
+                            <Button
+                              type="submit"
+                              disabled={!replyComment.trim() || submittingReplyToCommentId === comment.id}
+                            >
+                              {submittingReplyToCommentId === comment.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                "답글 등록"
+                              )}
+                            </Button>
                           </div>
-                          <div>
-                            <p className="font-bold text-slate-900 leading-tight">{comment.userName}</p>
-                            <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                              <Clock className="h-3 w-3" />
-                              {safeFormatDate(comment.createdAt)}
-                            </div>
-                          </div>
+                        </form>
+                      ) : null}
+
+                      {replyGroups[comment.id]?.length ? (
+                        <div className="mt-4 ml-12 space-y-3 border-l border-slate-200 pl-6">
+                          {replyGroups[comment.id].map((reply) => (
+                            <div key={reply.id}>{renderCommentCard(reply, true)}</div>
+                          ))}
                         </div>
-                      </div>
-                      <p className="text-slate-600 leading-relaxed pl-12 whitespace-pre-wrap">
-                        {comment.content}
-                      </p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -655,4 +958,3 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
     </div>
   );
 }
-

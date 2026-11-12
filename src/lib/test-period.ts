@@ -1,4 +1,5 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
+const KST_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" });
 
 type TimestampLike = {
   toDate?: () => Date;
@@ -35,6 +36,7 @@ const toDate = (value: unknown): Date | null => {
 };
 
 const addDays = (base: Date, days: number) => new Date(base.getTime() + days * DAY_MS);
+export const getKstDateString = (date: Date) => KST_DATE_FORMATTER.format(date);
 
 export const getAppTestEndDate = (app: {
   createdAt?: unknown;
@@ -80,6 +82,21 @@ export const getParticipationEndDate = (participation: {
   return addDays(startDate, targetDays);
 };
 
+export const hasParticipationCheckedInOnDate = (
+  participation: {
+    lastCheckIn?: unknown;
+    dailyChecks?: Record<string, boolean> | null;
+  },
+  dateString: string
+) => {
+  if (!dateString) return false;
+
+  return (
+    participation.lastCheckIn === dateString ||
+    Boolean(participation.dailyChecks && participation.dailyChecks[dateString])
+  );
+};
+
 export const isParticipationExpired = (
   participation: {
     endDate?: unknown;
@@ -94,5 +111,32 @@ export const isParticipationExpired = (
   const endDate = getParticipationEndDate(participation);
   if (!endDate) return false;
   return now >= endDate;
+};
+
+export const getEffectiveConsecutiveDays = (
+  participation: {
+    consecutiveDays?: number;
+    lastCheckIn?: unknown;
+  },
+  now: Date = new Date()
+) => {
+  const streak = Number(participation.consecutiveDays || 0);
+  if (streak <= 0) return 0;
+
+  if (typeof participation.lastCheckIn !== "string" || !participation.lastCheckIn) {
+    return streak;
+  }
+
+  const today = getKstDateString(now);
+  const yesterday = getKstDateString(addDays(now, -1));
+
+  if (
+    hasParticipationCheckedInOnDate(participation, today) ||
+    hasParticipationCheckedInOnDate(participation, yesterday)
+  ) {
+    return streak;
+  }
+
+  return 0;
 };
 

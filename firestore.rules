@@ -14,14 +14,80 @@ service cloud.firestore {
 
     // 관리자 확인
     function isAdmin() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isOptionalString(value, maxLength) {
+      return value == null || (value is string && value.size() <= maxLength);
+    }
+
+    function isOptionalHttpsUrl(value) {
+      return value == null || (
+        value is string &&
+        value.size() <= 2048 &&
+        value.matches('^https://[^\\s]+$')
+      );
+    }
+
+    function isOptionalEmail(value) {
+      return value == null || (
+        value is string &&
+        value.size() <= 320 &&
+        value.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+      );
+    }
+
+    function isValidUserDocument(userId) {
+      return request.resource.data.uid == userId &&
+        isOptionalString(request.resource.data.nickname, 100) &&
+        isOptionalString(request.resource.data.profileImage, 2048) &&
+        isOptionalEmail(request.resource.data.email) &&
+        (
+          !('role' in request.resource.data) ||
+          request.resource.data.role == 'user' ||
+          request.resource.data.role == 'admin'
+        );
+    }
+
+    function isSafeUserSelfUpdate(userId) {
+      return request.resource.data.uid == userId &&
+        request.resource.data.uid == resource.data.uid &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'email', 'stats']) &&
+        isOptionalString(request.resource.data.nickname, 100) &&
+        isOptionalString(request.resource.data.profileImage, 2048);
+    }
+
+    function isValidAppDocument() {
+      return request.resource.data.developerId is string &&
+        request.resource.data.developerNickname is string &&
+        request.resource.data.developerNickname.size() <= 100 &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 100 &&
+        request.resource.data.category in ['game', 'utility', 'productivity', 'other'] &&
+        request.resource.data.testDuration is int &&
+        request.resource.data.testDuration >= 7 &&
+        request.resource.data.testDuration <= 30 &&
+        request.resource.data.minTesters is int &&
+        request.resource.data.minTesters >= 1 &&
+        request.resource.data.minTesters <= 100 &&
+        request.resource.data.status in ['recruiting', 'testing', 'completed', 'deleted'] &&
+        isOptionalString(request.resource.data.description, 2000) &&
+        isOptionalString(request.resource.data.packageName, 200) &&
+        isOptionalHttpsUrl(request.resource.data.androidParticipationLink) &&
+        isOptionalHttpsUrl(request.resource.data.webParticipationLink) &&
+        isOptionalHttpsUrl(request.resource.data.googleGroupLink) &&
+        isOptionalEmail(request.resource.data.googleGroupEmail);
     }
 
     // Users
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUserDocument(userId) &&
+        (!('role' in request.resource.data) || request.resource.data.role == 'user');
+      allow update: if (isOwner(userId) && isSafeUserSelfUpdate(userId)) || isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
 
       // Private data (Tokens, etc.) - Only accessible via Admin SDK (Cloud Functions)
@@ -33,10 +99,7 @@ service cloud.firestore {
     // Apps
     match /apps/{appId} {
       allow read: if true;
-      allow create: if isAuthenticated() &&
-        request.resource.data.developerId == request.auth.uid;
-      allow update: if isAuthenticated() &&
-        (resource.data.developerId == request.auth.uid || isAdmin());
+      allow create, update: if false;
       allow delete: if isAuthenticated() &&
         (resource.data.developerId == request.auth.uid || isAdmin());
     }
@@ -44,7 +107,7 @@ service cloud.firestore {
     // Participations
     match /participations/{participationId} {
       allow read: if isAuthenticated() &&
-        (resource.data.testerId == request.auth.uid ||
+        (isAdmin() || resource.data.testerId == request.auth.uid ||
          get(/databases/$(database)/documents/apps/$(resource.data.appId)).data.developerId == request.auth.uid);
 
       // Participation create is server-only (Cloud Functions callable)

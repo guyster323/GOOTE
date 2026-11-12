@@ -10,6 +10,7 @@ import {
   User2,
   CheckCircle,
   Trophy,
+  Shield,
 } from "lucide-react";
 import {
   Sidebar,
@@ -35,7 +36,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
 
-const navItems = [
+const baseNavItems = [
   {
     title: "대시보드",
     url: "/dashboard",
@@ -68,10 +69,19 @@ const navItems = [
   },
 ];
 
+const adminNavItem = {
+  title: "회원 관리",
+  url: "/admin/members",
+  icon: Shield,
+};
+
 export function AppSidebar() {
   const { user, profile } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const navItems = profile?.role === "admin"
+    ? [...baseNavItems.slice(0, 5), adminNavItem, baseNavItems[5]]
+    : baseNavItems;
 
   return (
     <Sidebar collapsible="icon" variant="inset" className="border-r-0 shadow-xl">
@@ -81,7 +91,7 @@ export function AppSidebar() {
             <AppWindow className="h-5 w-5" />
           </div>
           <div className="flex flex-col gap-0.5 leading-none group-data-[collapsible=icon]:hidden">
-            <span className="font-bold text-lg tracking-tighter">GOOTE <span className="text-[10px] text-muted-foreground align-top ml-0.5">v0.9</span></span>
+            <span className="font-bold text-lg tracking-tighter">GOOTE <span className="text-[10px] text-muted-foreground align-top ml-0.5">v1.0</span></span>
             <span className="text-[10px] text-primary font-bold leading-none uppercase tracking-tighter">Pro Max</span>
           </div>
         </div>
