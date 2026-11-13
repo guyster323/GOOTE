@@ -2,6 +2,22 @@ import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { google } from "googleapis";
 import { sendGmail } from "./utils/gmail";
+import {
+  oneLineText,
+  renderApprovalEmail,
+  renderMailTemplate,
+} from "./utils/html-mail";
+import { buildLikeNotification } from "./utils/like-notice";
+import {
+  loadAppParticipants,
+  loadMemberDirectory,
+  loadPublicProfiles,
+  PrivacyError,
+  type CallerAuth,
+  type PrivacyStore,
+} from "./utils/member-privacy";
+import { deliverCommentNotice, deliverParticipationNotice } from "./utils/developer-notice";
+import { planUserBootstrap } from "./utils/profile-bootstrap";
 import { randomBytes } from "crypto";
 import type { Request, Response } from "express";
 
@@ -495,88 +511,6 @@ const createNotification = async (
   } catch (error) {
     functions.logger.error("Error creating notification", error);
   }
-};
-
-const renderMailTemplate = (
-  template: string | undefined,
-  data: {
-    testerNickname: string;
-    appName: string;
-    trackLinkAndroid: string;
-    trackLinkWeb: string;
-    iconUrl?: string;
-    category?: string;
-  },
-  isNudge = false
-): string => {
-  if (!template || !template.trim()) {
-    const headerBgColor = isNudge ? "#be123c" : "#0f172a";
-    const headerText = isNudge ? "GOOTE REMINDER" : "GOOTE";
-    const subtitle = isNudge
-      ? "오늘의 참여가 아직 확인되지 않았습니다."
-      : `안녕하세요, ${data.testerNickname}님!`;
-    const message = isNudge
-      ? `${data.testerNickname}님, 테스트 참여를 잊으셨나요? 연속 참여 기록을 유지하기 위해 오늘 안에 앱을 실행해주세요!`
-      : "오늘의 테스트 참여 시간입니다. 아래 버튼을 눌러 앱을 실행해주세요.";
-    const appColor = isNudge ? "#e11d48" : "#64748b";
-    const appBg = isNudge ? "#fff1f2" : "#f8fafc";
-    const appBorder = isNudge ? "#ffe4e6" : "#f1f5f9";
-    const btnColor = isNudge ? "#be123c" : "#0f172a";
-
-    return `
-      <div style="font-family: 'Apple SD Gothic Neo', sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-        <div style="background-color: ${headerBgColor}; padding: 40px 20px; text-align: center; border-radius: 20px 20px 0 0;">
-          <h1 style="color: ${headerText === "GOOTE" ? "#fff" : "#fff"}; margin: 0;">${headerText}</h1>
-        </div>
-        <div style="padding: 40px 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 20px 20px; background-color: #fff;">
-          <h2 style="font-size: 20px; font-weight: 800; margin-top: 0;">${subtitle}</h2>
-          <p>${message}</p>
-
-          <div style="background-color: ${appBg}; padding: 25px; border-radius: 16px; margin: 25px 0; border: 1px solid ${appBorder};">
-            <p style="margin-top: 0; font-weight: 700; color: ${appColor}; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">대상 앱 정보</p>
-            <div style="display: flex; align-items: center; gap: 15px;">
-              ${data.iconUrl ? `<img src="${data.iconUrl}" style="width: 50px; height: 50px; border-radius: 12px;" />` : ""}
-              <div>
-                <p style="margin: 0; font-weight: 800; font-size: 18px;">${data.appName}</p>
-                <p style="margin: 2px 0 0; color: ${appColor}; font-size: 14px;">${data.category || "App"}</p>
-              </div>
-            </div>
-          </div>
-
-          <div style="margin: 30px 0; display: flex; flex-direction: column; gap: 12px; align-items: center;">
-            <a href="${data.trackLinkAndroid}" style="display: block; width: 200px; background-color: ${btnColor}; color: #fff; padding: 15px 25px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px; text-align: center;">
-              Android로 ${isNudge ? "지금 인증" : "실행하기"}
-            </a>
-            <a href="${data.trackLinkWeb}" style="display: block; width: 200px; background-color: #fff; color: ${btnColor}; border: 2px solid ${btnColor}; padding: 15px 25px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px; text-align: center;">
-              Web으로 ${isNudge ? "지금 인증" : "실행하기"}
-            </a>
-          </div>
-
-          <p style="font-size: 12px; color: #94a3b8; text-align: center;">
-            * 버튼을 클릭하면 자동으로 오늘 참여 현황이 업데이트되며 플레이스토어로 이동합니다.<br/>
-            * 앱을 실행한 후 1분 이상 사용해주시는 것이 좋습니다.
-          </p>
-        </div>
-      </div>
-    `;
-  }
-
-  const rendered = template
-    .replace(/{testerNickname}/g, data.testerNickname)
-    .replace(/{appName}/g, data.appName)
-    .replace(/{trackLinkAndroid}/g, data.trackLinkAndroid)
-    .replace(/{trackLinkWeb}/g, data.trackLinkWeb);
-
-  return `
-    <div style="font-family: 'Apple SD Gothic Neo', sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-      <div style="background-color: #0f172a; padding: 40px 20px; text-align: center; border-radius: 20px 20px 0 0;">
-        <h1 style="color: #fff; margin: 0;">GOOTE</h1>
-      </div>
-      <div style="padding: 40px 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 20px 20px; background-color: #fff; font-size: 16px; line-height: 1.6;">
-        ${rendered}
-      </div>
-    </div>
-  `;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1539,32 +1473,85 @@ const recalculateTesterStats = async (testerId: string) => {
  * Triggered when a new user is created via Firebase Auth.
  * Initializes the user document in the 'users' collection.
  */
+const privacyStore: PrivacyStore = {
+  async getUser(uid) {
+    const snap = await db.collection("users").doc(uid).get();
+    if (!snap.exists) return null;
+    return { id: snap.id, data: snap.data() || {} };
+  },
+  async listUsers() {
+    const snap = await db.collection("users").get();
+    return snap.docs.map((userDoc) => ({ id: userDoc.id, data: userDoc.data() || {} }));
+  },
+  async getApp(appId) {
+    const snap = await db.collection("apps").doc(appId).get();
+    if (!snap.exists) return null;
+    return { developerId: snap.data()?.developerId };
+  },
+  async listParticipations(appId) {
+    const snap = await db.collection("participations").where("appId", "==", appId).get();
+    return snap.docs.map((participationDoc) => ({ id: participationDoc.id, data: participationDoc.data() || {} }));
+  },
+};
+
+const toCaller = (context: functions.https.CallableContext): CallerAuth => {
+  if (!context.auth) return { uid: null };
+  const email = context.auth.token.email;
+  return {
+    uid: context.auth.uid,
+    email: typeof email === "string" ? email : null,
+    emailVerified: context.auth.token.email_verified === true,
+  };
+};
+
+const callPrivacy = async <T>(work: () => Promise<T>): Promise<T> => {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof PrivacyError) {
+      throw new functions.https.HttpsError(error.code, error.message);
+    }
+    functions.logger.error("Privacy callable failed", error);
+    throw new functions.https.HttpsError("internal", "요청을 처리하지 못했습니다.");
+  }
+};
+
+export const getMemberDirectory = functions.runWith(runtimeOpts).https.onCall((_data, context) =>
+  callPrivacy(() => loadMemberDirectory(toCaller(context), privacyStore, process.env.PRIMARY_ADMIN_EMAIL))
+);
+
+export const getPublicProfiles = functions.runWith(runtimeOpts).https.onCall((_data, context) =>
+  callPrivacy(() => loadPublicProfiles(toCaller(context), privacyStore))
+);
+
+export const getAppParticipants = functions.runWith(runtimeOpts).https.onCall((data, context) =>
+  callPrivacy(() => loadAppParticipants(toCaller(context), privacyStore, process.env.PRIMARY_ADMIN_EMAIL, data?.appId))
+);
+
 export const onUserCreated = functions.auth.user().onCreate(async (user) => {
   const { uid, email, displayName, photoURL } = user;
-
-  const userDoc: any = {
-    uid,
-    email: email || "",
-    nickname: displayName || email?.split("@")[0] || "User",
-    profileImage: photoURL || "",
-    role: getInitialUserRole(email),
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    stats: {
-      appsRegistered: 0,
-      testsJoined: 0,
-      testsCompleted: 0,
-      totalLikes: 0,
-      totalConsecutiveDays: 0,
-    },
-    settings: {
-      emailNotifications: true,
-    },
-  };
+  const identity = { uid, email, displayName, photoURL };
 
   try {
-    await db.collection("users").doc(uid).set(userDoc);
-    functions.logger.info(`User document created for UID: ${uid}`);
+    await db.runTransaction(async (tx) => {
+      const userRef = db.collection("users").doc(uid);
+      const snap = await tx.get(userRef);
+      const existing = snap.exists ? snap.data() || {} : null;
+      const plan = planUserBootstrap(
+        existing,
+        identity,
+        getInitialUserRole,
+        () => admin.firestore.FieldValue.serverTimestamp()
+      );
+      if (plan.action === "create") {
+        tx.set(userRef, plan.document);
+        return;
+      }
+      if (Object.keys(plan.document).length > 0) {
+        tx.set(userRef, plan.document, { merge: true });
+      }
+    });
+    functions.logger.info(`User document initialized for UID: ${uid}`);
   } catch (error) {
     functions.logger.error(`Error creating user document for UID: ${uid}`, error);
   }
@@ -1880,50 +1867,29 @@ export const onCommentCreated = functions.firestore
         return null;
       }
 
-      const commenterEmail = commenterSnap?.data()?.email;
-      const appName = typeof appData?.name === "string" && appData.name.trim()
-        ? appData.name.trim()
-        : "앱";
-      const commentLink = `${getWebAppBaseUrl()}/apps/${appId}`;
+      const appName = oneLineText(appData?.name, "앱");
+      const commentLink = `${getWebAppBaseUrl()}/apps/${encodeURIComponent(appId)}`;
       const credentials = getMailCredentials();
-      const subject = `[GOOTE] ${appName}에 새로운 피드백이 등록되었습니다.`;
-      const safeContent = content
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\n/g, "<br />");
-
-      const html = `
-        <div style="font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; max-width: 600px; margin: 0 auto; color: #333; line-height: 1.6;">
-          <div style="background-color: #0f172a; padding: 40px 20px; text-align: center; border-radius: 20px 20px 0 0;">
-            <h1 style="color: #fff; margin: 0; font-size: 24px; font-weight: 900;">GOOTE</h1>
-            <p style="color: #94a3b8; margin: 10px 0 0; font-size: 14px;">New Feedback Alert</p>
-          </div>
-
-          <div style="padding: 40px 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 20px 20px; background-color: #fff;">
-            <h2 style="font-size: 20px; font-weight: 800; margin-top: 0;">새로운 피드백이 도착했습니다.</h2>
-            <p style="font-size: 16px;"><strong>${commenterName}</strong>님이 <strong>${appName}</strong>에 댓글을 남겼습니다.</p>
-
-            <div style="background-color: #f8fafc; padding: 25px; border-radius: 16px; margin: 25px 0; border: 1px solid #f1f5f9;">
-              <p style="margin-top: 0; font-weight: 700; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">피드백 내용</p>
-              <p style="margin: 0; white-space: normal;">${safeContent}</p>
-            </div>
-
-            <div style="margin: 30px 0; text-align: center;">
-              <a href="${commentLink}" style="display: inline-block; background-color: #0f172a; color: #fff; padding: 18px 25px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px;">
-                앱 페이지에서 확인하기
-              </a>
-            </div>
-          </div>
-        </div>
-      `;
-
-      await sendGmail({
-        to: developerEmail.trim(),
-        subject,
-        html,
-        replyTo: typeof commenterEmail === "string" && commenterEmail.trim() ? commenterEmail.trim() : undefined,
-        credentials,
+      await deliverCommentNotice({
+        getRecipient: async () => ({
+          role: developerSnap.data()?.role,
+          email: developerEmail,
+        }),
+        getAuthUser: async (recipientId) => {
+          const record = await admin.auth().getUser(recipientId);
+          return { email: record.email, emailVerified: record.emailVerified === true };
+        },
+        sendGmail: async (message) => {
+          await sendGmail({ ...message, credentials });
+        },
+        configuredEmail: process.env.PRIMARY_ADMIN_EMAIL,
+      }, {
+        developerId,
+        commenterName,
+        commenterEmail: commenterSnap?.data()?.email,
+        appName,
+        content,
+        commentLink,
       });
 
       functions.logger.info("Comment notification email sent", {
@@ -2468,56 +2434,28 @@ export const requestParticipation = functions.runWith(runtimeOpts).https.onCall(
     const developerEmail = developerSnap.data()?.email;
 
     if (developerEmail) {
-      const credentials = {
-        clientId: process.env.GMAIL_CLIENT_ID || "",
-        clientSecret: process.env.GMAIL_CLIENT_SECRET || "",
-        refreshToken: process.env.GMAIL_REFRESH_TOKEN || "",
-        userEmail: process.env.GMAIL_USER || "",
-      };
-
-      const subject = `[GOOTE] ${appData?.name} 테스트에 새로운 참여자가 등록되었습니다.`;
-
-      const html = `
-        <div style="font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; max-width: 600px; margin: 0 auto; color: #333; line-height: 1.6;">
-          <div style="background-color: #0f172a; padding: 40px 20px; text-align: center; border-radius: 20px 20px 0 0;">
-            <h1 style="color: #fff; margin: 0; font-size: 24px; font-weight: 900;">GOOTE</h1>
-            <p style="color: #94a3b8; margin: 10px 0 0; font-size: 14px;">Premium App Testing Community</p>
-          </div>
-
-          <div style="padding: 40px 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 20px 20px; background-color: #fff;">
-            <h2 style="font-size: 20px; font-weight: 800; margin-top: 0;">새로운 테스트 참여자</h2>
-            <p style="font-size: 16px;"><strong>${testerData?.nickname}</strong>님이 <strong>${appData?.name}</strong> 테스트에 참여를 시작했습니다.</p>
-
-            <div style="background-color: #f8fafc; padding: 25px; border-radius: 16px; margin: 25px 0; border: 1px solid #f1f5f9;">
-              <p style="margin-top: 0; font-weight: 700; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">테스터 정보</p>
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 8px 0; color: #64748b; width: 100px;">닉네임</td>
-                  <td style="padding: 8px 0; font-weight: 700;">${testerData?.nickname}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #64748b;">이메일</td>
-                  <td style="padding: 8px 0; font-weight: 700;">${testerData?.email}</td>
-                </tr>
-              </table>
-            </div>
-
-            <div style="margin: 30px 0; text-align: center;">
-              <a href="${getAppManageUrl(appId)}" style="display: block; background-color: #0f172a; color: #fff; padding: 18px 25px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px; margin-bottom: 12px;">
-                앱 관리 페이지에서 확인하기
-              </a>
-            </div>
-          </div>
-        </div>
-      `;
+      const credentials = getMailCredentials();
 
       try {
-        await sendGmail({
-          to: developerEmail,
-          subject,
-          html,
-          credentials,
-          replyTo: testerData?.email
+        await deliverParticipationNotice({
+          getRecipient: async () => ({
+            role: developerSnap.data()?.role,
+            email: developerEmail,
+          }),
+          getAuthUser: async (recipientId) => {
+            const record = await admin.auth().getUser(recipientId);
+            return { email: record.email, emailVerified: record.emailVerified === true };
+          },
+          sendGmail: async (message) => {
+            await sendGmail({ ...message, credentials });
+          },
+          configuredEmail: process.env.PRIMARY_ADMIN_EMAIL,
+        }, {
+          developerId,
+          testerNickname: testerData?.nickname,
+          testerEmail: testerData?.email,
+          appName: appData?.name,
+          manageUrl: getAppManageUrl(appId),
         });
       } catch (mailError) {
         functions.logger.error("Error sending notification email to developer", mailError);
@@ -2779,34 +2717,12 @@ export const approveTester = functions.runWith(runtimeOpts).https.onCall(async (
 
       const token = await ensureDailyTrackToken(partRef, participationData);
       const approvalTrackLink = buildTrackDailyLink(participationId, "approval", token);
-      const subject = `[GOOTE] ${appData?.name} 테스트 참여가 승인되었습니다!`;
-
-      const html = `
-        <div style="font-family: 'Apple SD Gothic Neo', sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-          <div style="background-color: #0f172a; padding: 40px 20px; text-align: center; border-radius: 20px 20px 0 0;">
-            <h1 style="color: #fff; margin: 0;">GOOTE</h1>
-          </div>
-          <div style="padding: 40px 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 20px 20px;">
-            <h2>참여 승인 완료!</h2>
-            <p>${testerData.nickname}님, <strong>${appData?.name}</strong> 테스트 참여가 승인되었습니다.</p>
-
-            <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; margin: 25px 0; border: 1px solid #e2e8f0;">
-              <p style="margin: 0 0 10px 0; font-weight: 700;">테스트 시작하기</p>
-              <ol style="margin: 0; padding-left: 20px; color: #475569;">
-                <li style="margin-bottom: 8px;">아래 버튼을 눌러 설치 페이지로 이동하면 오늘 참여가 자동 반영됩니다.</li>
-                <li style="margin-bottom: 8px;">초대를 수락하고 앱을 다운로드해주세요.</li>
-                <li>이후에는 GOOTE의 출석 체크 또는 일일 메일 버튼으로 참여를 이어가세요.</li>
-              </ol>
-            </div>
-
-            <div style="margin: 30px 0; text-align: center;">
-              <a href="${approvalTrackLink}" style="background-color: #0f172a; color: #fff; padding: 18px 30px; border-radius: 12px; text-decoration: none; font-weight: 800; font-size: 16px; display: inline-block;">
-                설치하고 오늘 참여 반영하기
-              </a>
-            </div>
-          </div>
-        </div>
-      `;
+      const subject = `[GOOTE] ${oneLineText(appData?.name, "앱")} 테스트 참여가 승인되었습니다!`;
+      const html = renderApprovalEmail({
+        testerNickname: testerData.nickname,
+        appName: appData?.name,
+        trackLink: approvalTrackLink,
+      });
 
       try {
         await sendGmail({ to: testerData.email, subject, html, credentials });
@@ -2953,48 +2869,49 @@ export const expireTestPeriods = functions.runWith(runtimeOpts).pubsub
  */
 export const onLikeCreated = functions.firestore
   .document("likes/{likeId}")
-  .onCreate(async (snapshot, context) => {
-    const likeData = snapshot.data();
-    const { toType, toId } = likeData;
+  .onCreate(async (snapshot) => {
+    const likeData = snapshot.data() || {};
+    const toType = likeData.toType === "app" || likeData.toType === "user" ? likeData.toType : "";
+    const toId = typeof likeData.toId === "string" ? likeData.toId : "";
+    const fromUserId = typeof likeData.fromUserId === "string" ? likeData.fromUserId : "";
 
-        try {
-      if (toType === "app") {
+    try {
+      if (toType === "app" && toId) {
         await db.collection("apps").doc(toId).update({
           "stats.likes": admin.firestore.FieldValue.increment(1),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         const appSnap = await db.collection("apps").doc(toId).get();
-        if (appSnap.exists) {
-          const appData = appSnap.data();
-          const developerId = appData?.developerId;
-          const appName = appData?.name || "앱";
-          if (developerId && developerId !== likeData.fromUserId) {
-            await createNotification(
-              developerId,
-              "like_received",
-              "새로운 앱 좋아요",
-              `${likeData.fromUserNickname || "누군가"}님이 '${appName}' 앱을 좋아합니다.`,
-              `/my-apps/${toId}/manage`,
-              { appId: toId, fromUserId: likeData.fromUserId }
-            );
-          }
+        const appData = appSnap.data();
+        const developerId = typeof appData?.developerId === "string" ? appData.developerId : "";
+        const senderSnap = fromUserId ? await db.collection("users").doc(fromUserId).get() : null;
+        const notice = buildLikeNotification({
+          toType: "app",
+          toId,
+          fromUserId,
+          developerId,
+          appName: appData?.name,
+          senderNickname: senderSnap?.data()?.nickname,
+        });
+        if (notice) {
+          await createNotification(notice.userId, "like_received", notice.title, notice.content, notice.link, notice.data);
         }
-      } else if (toType === "user") {
+      } else if (toType === "user" && toId) {
         await db.collection("users").doc(toId).update({
           "stats.totalLikes": admin.firestore.FieldValue.increment(1),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        if (toId !== likeData.fromUserId) {
-          await createNotification(
-            toId,
-            "like_received",
-            "새로운 프로필 좋아요",
-            `${likeData.fromUserNickname || "누군가"}님이 회원님을 좋아합니다.`,
-            `/ranking`,
-            { fromUserId: likeData.fromUserId }
-          );
+        const senderSnap = fromUserId ? await db.collection("users").doc(fromUserId).get() : null;
+        const notice = buildLikeNotification({
+          toType: "user",
+          toId,
+          fromUserId,
+          senderNickname: senderSnap?.data()?.nickname,
+        });
+        if (notice) {
+          await createNotification(notice.userId, "like_received", notice.title, notice.content, notice.link, notice.data);
         }
       }
       functions.logger.info(`Incremented likes for ${toType}: ${toId}`);
@@ -3186,8 +3103,17 @@ export const dailyTaskMailScheduler = functions.runWith(runtimeOpts).pubsub
           const trackLinkAndroid = buildTrackDailyLink(participationId, "android", token);
           const trackLinkWeb = buildTrackDailyLink(participationId, "web", token);
 
-          const subject = `[GOOTE] 오늘 ${appName} 앱을 실행하고 참여를 인증해주세요!`;
-          const html = renderMailTemplate(appData?.mailTemplate, { testerNickname, appName, trackLinkAndroid, trackLinkWeb, iconUrl: appData?.iconUrl, category: appData?.category }, false);
+          const subject = `[GOOTE] 오늘 ${oneLineText(appName, "앱")} 앱을 실행하고 참여를 인증해주세요!`;
+          const html = renderMailTemplate({
+            template: appData?.mailTemplate,
+            testerNickname,
+            appName,
+            trackLinkAndroid,
+            trackLinkWeb,
+            iconUrl: appData?.iconUrl,
+            category: appData?.category,
+            isNudge: false,
+          });
 
           try {
             await sendGmail({ to: testerEmail, subject, html, credentials });
@@ -3284,8 +3210,17 @@ export const dailyNudgeMailScheduler = functions.runWith(runtimeOpts).pubsub
           const trackLinkAndroid = buildTrackDailyLink(participationId, "android", token);
           const trackLinkWeb = buildTrackDailyLink(participationId, "web", token);
 
-          const subject = `[GOOTE] 아직 ${appName} 참여 인증을 하지 않으셨네요! (마감 임박)`;
-          const html = renderMailTemplate(appData?.mailTemplate, { testerNickname, appName, trackLinkAndroid, trackLinkWeb, iconUrl: appData?.iconUrl, category: appData?.category }, true);
+          const subject = `[GOOTE] 아직 ${oneLineText(appName, "앱")} 참여 인증을 하지 않으셨네요! (마감 임박)`;
+          const html = renderMailTemplate({
+            template: appData?.mailTemplate,
+            testerNickname,
+            appName,
+            trackLinkAndroid,
+            trackLinkWeb,
+            iconUrl: appData?.iconUrl,
+            category: appData?.category,
+            isNudge: true,
+          });
 
           try {
             await sendGmail({ to: testerEmail, subject, html, credentials });

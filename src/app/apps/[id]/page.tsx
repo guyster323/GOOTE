@@ -18,6 +18,7 @@ import { ko } from "date-fns/locale";
 import { createDailyTrackUrl } from "@/lib/daily-track";
 import { navigateExternalWindow, openPendingExternalWindow } from "@/lib/external-window";
 import { isValidGoogleGroupUrl } from "@/lib/google-groups";
+import { fetchOwnAppTesterIds } from "@/lib/member-data";
 import { resolvePlayParticipationLink } from "@/lib/play-links";
 import { isAppTestCompleted } from "@/lib/test-period";
 
@@ -157,25 +158,11 @@ export default function AppDetailPage({ params }: { params: Promise<{ id: string
           return;
         }
 
-        let isDeveloperTestingMine = false;
-        for (let j = 0; j < myApps.length; j += 10) {
-          const appIds = myApps.slice(j, j + 10);
-          const crossSnap = await getDocs(
-            query(
-              collection(db, "participations"),
-              where("testerId", "==", app.developerId),
-              where("appId", "in", appIds),
-              where("status", "in", ["active", "completed"])
-            )
-          );
-
-          if (!crossSnap.empty) {
-            isDeveloperTestingMine = true;
-            break;
-          }
-        }
-
-        setCrossStatus({ hasMyApps: true, isDeveloperTestingMine });
+        const testerIds = await fetchOwnAppTesterIds(myApps);
+        setCrossStatus({
+          hasMyApps: true,
+          isDeveloperTestingMine: testerIds.has(app.developerId),
+        });
       } catch (error) {
         console.error("Error fetching cross status:", error);
         setCrossStatus(null);

@@ -452,14 +452,14 @@ export default function RegisterAppPage() {
                 </FormControl>
                 <FormDescription>
                   <div className="mt-2 bg-slate-50 border border-slate-100 p-4 rounded-xl space-y-2 text-slate-600">
-                    <p className="text-xs font-bold text-slate-700">사용 가능한 치환자:</p>
+                    <p className="text-xs font-bold text-slate-700">본문은 일반 텍스트로 전달됩니다. HTML은 실행되지 않습니다.</p>
                     <ul className="text-xs text-slate-500 list-disc pl-4 space-y-1">
                       <li><code>{"{testerNickname}"}</code> : 테스터의 닉네임</li>
                       <li><code>{"{appName}"}</code> : 등록된 앱 이름</li>
-                      <li><code>{"{trackLinkAndroid}"}</code> : Android 트랙 참여 인증 링크</li>
-                      <li><code>{"{trackLinkWeb}"}</code> : Web 트랙 참여 인증 링크</li>
+                      <li><code>{"{trackLinkAndroid}"}</code> : Android 인증 링크 텍스트</li>
+                      <li><code>{"{trackLinkWeb}"}</code> : Web 인증 링크 텍스트</li>
                     </ul>
-                    <p className="text-[11px] text-amber-600 font-medium">* 템플릿에 인증 링크 치환자를 꼭 포함해야 테스터가 참여 체크인을 완료할 수 있습니다.</p>
+                    <p className="text-[11px] text-amber-600 font-medium">* Android/Web 공식 인증 버튼은 템플릿에 치환자를 넣지 않아도 메일에 항상 포함됩니다. 링크 치환자는 본문에 주소 텍스트를 보여줄 때만 필요합니다.</p>
                   </div>
                 </FormDescription>
                 <FormMessage />

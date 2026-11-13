@@ -13,17 +13,29 @@ test("shared backend preserves every deployed web and Android function", () => {
   expect(names.sort()).toEqual(contract.exports);
 });
 
-test("custom mail templates render participant values and tracking links", () => {
-  const statement = parsed.statements.filter(ts.isVariableStatement)
-    .find(n => n.declarationList.declarations[0].name.getText(parsed) === "renderMailTemplate");
-  expect(statement).toBeDefined();
-  const javascript = ts.transpile(statement!.getText(parsed), { target: ts.ScriptTarget.ES2020 });
-  const render = new Function(`${javascript}; return renderMailTemplate;`)();
-  const result = render("{testerNickname}: {appName} {trackLinkAndroid} {trackLinkWeb}", {
-    testerNickname: "테스터", appName: "앱", trackLinkAndroid: "https://example.com/android",
-    trackLinkWeb: "https://example.com/web",
+test("custom mail templates keep literal text and official tracking buttons", () => {
+  const sourceFile = fs.readFileSync("functions/src/utils/html-mail.ts", "utf8");
+  const javascript = ts.transpileModule(sourceFile, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const loaded = { exports: {} as Record<string, unknown> };
+  new Function("exports", "module", javascript)(loaded.exports, loaded);
+  const render = loaded.exports.renderMailTemplate as (input: Record<string, unknown>) => string;
+  const android = "https://us-central1-goote-f48d8.cloudfunctions.net/api/track-daily?pid=app_user&type=android&t=abc123";
+  const web = "https://us-central1-goote-f48d8.cloudfunctions.net/api/track-daily?pid=app_user&type=web&t=abc123";
+  const result = render({
+    template: "{testerNickname}: {appName} {trackLinkAndroid} {trackLinkWeb}",
+    testerNickname: "테스터",
+    appName: "앱",
+    trackLinkAndroid: android,
+    trackLinkWeb: web,
   });
-  expect(result).toContain("테스터: 앱 https://example.com/android https://example.com/web");
+  const escapedAndroid = android.replace(/&/g, "&amp;");
+  const escapedWeb = web.replace(/&/g, "&amp;");
+  expect(result).toContain("테스터: 앱");
+  expect(result).toContain(escapedAndroid);
+  expect(result).toContain(escapedWeb);
+  expect(result).toContain(`href="${escapedAndroid}"`);
   expect(result).not.toContain("${rendered}");
 });
 

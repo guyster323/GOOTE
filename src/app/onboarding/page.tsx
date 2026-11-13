@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
-import { isAdminRole } from "@/lib/admin";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { buildOnboardingWrite } from "@/lib/onboarding-profile";
+import { doc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { Loader2, MessageCircle } from "lucide-react";
 
 export default function OnboardingPage() {
-  const { user, profile, updateProfile } = useAuth();
+  const { user, updateProfile } = useAuth();
   const [nickname, setNickname] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
@@ -22,34 +22,37 @@ export default function OnboardingPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    if (!nickname.trim()) {
+    const trimmedNickname = nickname.trim();
+    if (!trimmedNickname) {
       toast.error("카카오 오픈채팅방 닉네임을 입력해주세요.");
+      return;
+    }
+    if (trimmedNickname.length > 100) {
+      toast.error("닉네임은 100자 이하여야 합니다.");
       return;
     }
 
     setIsSubmitting(true);
     try {
       const userRef = doc(db, "users", user.uid);
-      const role = isAdminRole(profile?.role) ? "admin" : "user";
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(userRef);
+        const plan = buildOnboardingWrite({
+          exists: snapshot.exists(),
+          uid: user.uid,
+          nickname: trimmedNickname,
+          email: user.email,
+          photoURL: user.photoURL,
+          timestamp: serverTimestamp(),
+        });
+        if (plan.kind === "update") {
+          transaction.update(userRef, plan.data);
+          return;
+        }
+        transaction.set(userRef, plan.data);
+      });
 
-      await setDoc(userRef, {
-        uid: user.uid,
-        email: user.email || "",
-        nickname: nickname.trim(),
-        profileImage: user.photoURL || "",
-        dismissedGuides: [],
-        stats: {
-          appsRegistered: 0,
-          testsJoined: 0,
-          testsCompleted: 0,
-          totalLikes: 0,
-          totalConsecutiveDays: 0,
-        },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-
-      updateProfile({ nickname: nickname.trim(), role });
+      updateProfile({ nickname: trimmedNickname });
 
       await new Promise(resolve => setTimeout(resolve, 1000));
 

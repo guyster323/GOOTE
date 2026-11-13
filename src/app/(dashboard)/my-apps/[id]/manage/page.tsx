@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { doc, collection, query, where, onSnapshot, deleteDoc, getDocs, documentId } from "firebase/firestore";
+import { doc, onSnapshot, deleteDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
+import { fetchAppParticipants, type AppParticipant } from "@/lib/member-data";
+import {
+  emptyBoundRows,
+  publishBoundRows,
+  startSensitiveGeneration,
+  visibleBoundRows,
+  viewerIdentityKey,
+  type BoundRows,
+} from "@/lib/sensitive-request";
 import { useAuth } from "@/hooks/use-auth";
 import { isAdminRole } from "@/lib/admin";
 import { toast } from "sonner";
@@ -26,64 +35,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getEffectiveConsecutiveDays } from "@/lib/test-period";
 
-type TesterProfile = {
-  email?: string;
-  nickname?: string;
-};
+type ParticipationRecord = AppParticipant;
 
-type ParticipationRecord = {
-  id: string;
-  consecutiveDays?: number;
-  createdAt?: unknown;
-  lastCheckIn?: unknown;
-  updatedAt?: unknown;
-  status?: string;
-  targetDays?: number;
-  testerId?: string;
-  testerEmail?: string;
-  testerNickname?: string;
-};
-
-const chunk = <T,>(items: T[], size: number) => {
-  const chunks: T[][] = [];
-
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-
-  return chunks;
-};
-
-const getPreferredNickname = (nickname?: string, email?: string) => {
-  const trimmedNickname = nickname?.trim();
-  if (trimmedNickname) return trimmedNickname;
-
-  const trimmedEmail = email?.trim();
-  if (trimmedEmail) return trimmedEmail.split("@")[0];
-
-  return "익명";
-};
-
-const getPreferredEmail = (email?: string) => {
-  const trimmedEmail = email?.trim();
-  return trimmedEmail || "이메일 없음";
-};
-
-const getAvatarLabel = (nickname?: string, email?: string) => {
-  return getPreferredNickname(nickname, email).replace(/\s+/g, "").slice(0, 2).toUpperCase();
-};
+const displayName = (participant: ParticipationRecord) => participant.nickname?.trim() || "익명";
+const emailLabel = (participant: ParticipationRecord) => participant.email || "이메일 없음";
+const avatarLabel = (participant: ParticipationRecord) =>
+  displayName(participant).replace(/\s+/g, "").slice(0, 2).toUpperCase();
 
 export default function AppManagePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const resolvedParams = use(params);
   const appId = resolvedParams.id;
   const { user, profile } = useAuth();
-  const isPrimaryAdmin = isAdminRole(profile?.role);
+  const isAdmin = isAdminRole(profile?.role);
 
   const [app, setApp] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [pendingRequests, setPendingRequests] = useState<ParticipationRecord[]>([]);
-  const [activeTesters, setActiveTesters] = useState<ParticipationRecord[]>([]);
+  const [participantSnapshot, setParticipantSnapshot] = useState<BoundRows<ParticipationRecord>>(emptyBoundRows());
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -105,7 +73,6 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
   useEffect(() => {
     // Critical: Wait for both user and appId to be valid before doing anything
     if (!user || !appId || typeof appId !== 'string') return;
-    let cancelled = false;
 
     console.log("Starting subscriptions for appId:", appId);
     setLoading(true);
@@ -114,7 +81,7 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
     const unsubscribeApp = onSnapshot(doc(db, "apps", appId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data.developerId !== user.uid && !isPrimaryAdmin) {
+        if (data.developerId !== user.uid && !isAdmin) {
           toast.error("접근 권한이 없습니다.");
           router.push("/my-apps");
           return;
@@ -148,98 +115,80 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
       setLoading(false);
     });
 
-    // Subscribe to participation requests
-    const q = query(
-      collection(db, "participations"),
-      where("appId", "==", appId)
-    );
-
-    const unsubscribeParticipations = onSnapshot(q, (snapshot) => {
-      void (async () => {
-        const records = snapshot.docs.map((snapshotDoc) => ({
-          id: snapshotDoc.id,
-          ...snapshotDoc.data(),
-        })) as ParticipationRecord[];
-
-        const testerIds = Array.from(new Set(
-          records
-            .map((record) => record.testerId?.trim())
-            .filter((testerId): testerId is string => Boolean(testerId))
-        ));
-
-        const profileMap = new Map<string, TesterProfile>();
-
-        for (const testerIdChunk of chunk(testerIds, 10)) {
-          const usersSnapshot = await getDocs(
-            query(collection(db, "users"), where(documentId(), "in", testerIdChunk))
-          );
-
-          usersSnapshot.forEach((userDoc) => {
-            const profileData = userDoc.data() as TesterProfile;
-            profileMap.set(userDoc.id, profileData);
-          });
-        }
-
-        const mergedRecords = records.map((record) => {
-          const profileData = record.testerId ? profileMap.get(record.testerId) : undefined;
-          const testerEmail = record.testerEmail?.trim() || profileData?.email?.trim() || "";
-          const testerNickname = record.testerNickname?.trim() || profileData?.nickname?.trim() || "";
-
-          return {
-            ...record,
-            testerEmail: getPreferredEmail(testerEmail),
-            testerNickname: getPreferredNickname(testerNickname, testerEmail),
-          };
-        });
-
-        const pending: ParticipationRecord[] = [];
-        const active: ParticipationRecord[] = [];
-
-        mergedRecords.forEach((record) => {
-          if (record.status === "pending") {
-            pending.push(record);
-          } else if (record.status === "active" || record.status === "completed") {
-            active.push(record);
-          }
-        });
-
-        const safeTime = (ts: unknown) => {
-          try {
-            const maybeTimestamp = ts as { toMillis?: () => number } | null;
-            if (maybeTimestamp?.toMillis) return maybeTimestamp.toMillis();
-            return ts ? new Date(ts as string | number | Date).getTime() : 0;
-          } catch {
-            return 0;
-          }
-        };
-
-        pending.sort((a, b) => safeTime(b.createdAt) - safeTime(a.createdAt));
-        active.sort((a, b) => safeTime(b.updatedAt) - safeTime(a.updatedAt));
-
-        if (cancelled) return;
-
-        setPendingRequests(pending);
-        setActiveTesters(active);
-      })().catch((error) => {
-        console.error("Error enriching participation records:", error);
-      });
-    }, (error) => {
-      console.error("Error fetching participations snapshot:", error);
-    });
-
     return () => {
-      cancelled = true;
       unsubscribeApp();
-      unsubscribeParticipations();
     };
-  }, [user, appId, router, isPrimaryAdmin]);
+  }, [user, appId, router, isAdmin]);
+
+  const viewerKey = viewerIdentityKey({
+    uid: user?.uid,
+    email: user?.email,
+    emailVerified: user?.emailVerified,
+    role: profile?.role,
+    scope: appId,
+  });
+  const generationRef = useRef(0);
+  const identityRef = useRef(viewerKey);
+  identityRef.current = viewerKey;
+
+  const visibleParticipants = visibleBoundRows(participantSnapshot, viewerKey);
+  const pendingRequests = visibleParticipants
+    .filter((record) => record.status === "pending")
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const activeTesters = visibleParticipants
+    .filter((record) => record.status === "active" || record.status === "completed")
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  const loadParticipantsFor = useCallback(async (capturedKey: string) => {
+    if (capturedKey !== identityRef.current) return;
+    const generation = startSensitiveGeneration(generationRef.current);
+    generationRef.current = generation;
+    if (!user || !appId) return;
+    try {
+      const records = await fetchAppParticipants(appId);
+      const published = publishBoundRows(generationRef.current, identityRef.current, {
+        generation,
+        identityKey: capturedKey,
+        rows: records,
+      });
+      if (published) setParticipantSnapshot(published);
+    } catch (error) {
+      console.error("Error fetching app participants:", error);
+      const published = publishBoundRows(generationRef.current, identityRef.current, {
+        generation,
+        identityKey: capturedKey,
+        rows: [],
+      });
+      if (published) {
+        setParticipantSnapshot(published);
+        toast.error("참여자 목록을 불러오지 못했습니다.");
+      }
+    }
+  }, [appId, user]);
+
+  useEffect(() => {
+    void loadParticipantsFor(viewerKey);
+    return () => {
+      generationRef.current = startSensitiveGeneration(generationRef.current);
+    };
+  }, [loadParticipantsFor, viewerKey]);
+
+  useEffect(() => {
+    return () => {
+      generationRef.current = startSensitiveGeneration(generationRef.current);
+      identityRef.current = "";
+    };
+  }, []);
 
   const handleApprove = async (participationId: string) => {
+    const capturedKey = viewerKey;
     setProcessingId(participationId);
     try {
       const approveTester = httpsCallable(functions, "approveTester");
       await approveTester({ participationId });
+      if (capturedKey !== identityRef.current) return;
       toast.success("테스터를 승인했습니다.");
+      await loadParticipantsFor(capturedKey);
     } catch (error) {
       console.error("Error approving tester:", error);
       toast.error("승인 중 오류가 발생했습니다.");
@@ -251,12 +200,15 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
   const handleReject = async (participationId: string) => {
     if (!confirm("정말 이 요청을 거절하시겠습니까?")) return;
 
+    const capturedKey = viewerKey;
     setProcessingId(participationId);
     try {
       // 거절은 문서를 삭제하거나 status를 rejected로 변경
       // 여기서는 문서를 삭제하는 것으로 구현 (또는 status: rejected 업데이트)
       await deleteDoc(doc(db, "participations", participationId));
+      if (capturedKey !== identityRef.current) return;
       toast.success("요청을 거절(삭제)했습니다.");
+      await loadParticipantsFor(capturedKey);
     } catch (error) {
       console.error("Error rejecting tester:", error);
       toast.error("거절 중 오류가 발생했습니다.");
@@ -275,11 +227,14 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
       return;
     }
 
+    const capturedKey = viewerKey;
     setKickingUserId(targetUserId);
     try {
       const deleteUserByAdmin = httpsCallable(functions, "deleteUserByAdmin");
       await deleteUserByAdmin({ targetUserId });
+      if (capturedKey !== identityRef.current) return;
       toast.success("계정을 탈퇴 처리했습니다.");
+      await loadParticipantsFor(capturedKey);
     } catch (error) {
       console.error("Error deleting user by admin:", error);
       toast.error("계정 탈퇴 처리 중 오류가 발생했습니다.");
@@ -428,23 +383,23 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
                     >
                       <div className="flex items-start gap-4">
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-sm font-black text-white">
-                          {getAvatarLabel(req.testerNickname, req.testerEmail)}
+                          {avatarLabel(req)}
                         </div>
                         <div className="min-w-0 space-y-1.5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-base font-black tracking-tight text-slate-900">{String(req.testerNickname || '익명')}</p>
+                            <p className="text-base font-black tracking-tight text-slate-900">{displayName(req)}</p>
                             <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">승인 대기</Badge>
                           </div>
-                          <p className="break-all font-mono text-sm text-slate-600">{String(req.testerEmail || '이메일 없음')}</p>
+                          <p className="break-all font-mono text-sm text-slate-600">{emailLabel(req)}</p>
                           <p className="text-xs font-medium text-slate-400">요청일 {safeFormatDate(req.createdAt)}</p>
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2 md:justify-end">
-                        {isPrimaryAdmin && req.testerId && req.testerId !== user?.uid && (
+                        {isAdmin && req.testerId && req.testerId !== user?.uid && (
                           <Button
                             size="sm"
                             variant="destructive"
-                            onClick={() => handleKickUser(req.testerId, String(req.testerNickname || req.testerEmail || "사용자"))}
+                            onClick={() => handleKickUser(req.testerId, displayName(req))}
                             disabled={kickingUserId === req.testerId}
                           >
                             {kickingUserId === req.testerId ? (
@@ -518,12 +473,12 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
                           </div>
                           <div className="min-w-0 space-y-1.5">
                             <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-base font-black tracking-tight text-slate-900">{String(tester.testerNickname || '익명')}</p>
+                              <p className="text-base font-black tracking-tight text-slate-900">{displayName(tester)}</p>
                               {tester.status === 'completed' && (
                                 <Badge variant="secondary" className="bg-green-100 text-green-700">완료됨</Badge>
                               )}
                             </div>
-                            <p className="break-all font-mono text-sm text-slate-600">{String(tester.testerEmail || '이메일 없음')}</p>
+                            <p className="break-all font-mono text-sm text-slate-600">{emailLabel(tester)}</p>
                             <p className="text-xs font-medium text-slate-400">최근 활동 {safeFormatDate(tester.updatedAt)}</p>
                           </div>
                         </div>
@@ -536,11 +491,11 @@ export default function AppManagePage({ params }: { params: Promise<{ id: string
                               {effectiveConsecutiveDays} / {tester.targetDays || 14} 일
                             </p>
                           </div>
-                          {isPrimaryAdmin && tester.testerId && tester.testerId !== user?.uid && (
+                          {isAdmin && tester.testerId && tester.testerId !== user?.uid && (
                             <Button
                               size="sm"
                               variant="destructive"
-                              onClick={() => handleKickUser(tester.testerId, String(tester.testerNickname || tester.testerEmail || "사용자"))}
+                              onClick={() => handleKickUser(tester.testerId, displayName(tester))}
                               disabled={kickingUserId === tester.testerId}
                             >
                               {kickingUserId === tester.testerId ? (
