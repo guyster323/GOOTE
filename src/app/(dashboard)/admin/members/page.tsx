@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { collection, onSnapshot } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { db, app as firebaseApp } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/lib/firebase";
+import { fetchMemberDirectory, type MemberDirectoryEntry } from "@/lib/member-data";
+import {
+  canRemoveMember,
+  emptyBoundRows,
+  publishBoundRows,
+  removeBoundRow,
+  startSensitiveGeneration,
+  visibleBoundRows,
+  viewerIdentityKey,
+  type BoundRows,
+} from "@/lib/sensitive-request";
 import { useAuth } from "@/hooks/use-auth";
 import { isAdminRole } from "@/lib/admin";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,32 +24,31 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Loader2, Shield, Search, UserX, Users } from "lucide-react";
 
-type Member = {
-  id: string;
-  uid?: string;
-  email?: string;
-  nickname?: string;
-  profileImage?: string;
-  role?: string;
-  stats?: {
-    appsRegistered?: number;
-    testsJoined?: number;
-    testsCompleted?: number;
-  };
-};
+type Member = MemberDirectoryEntry;
 
-const getDisplayName = (member: Member) =>
-  member.nickname?.trim() || member.email?.split("@")[0] || "익명 사용자";
+const getDisplayName = (member: Member) => member.nickname?.trim() || "익명 사용자";
+
+const emailLabel = (member: Member) => member.email || "이메일 없음";
 
 export default function AdminMembersPage() {
   const router = useRouter();
   const { user, profile, isLoading } = useAuth();
-  const [members, setMembers] = useState<Member[]>([]);
+  const [memberSnapshot, setMemberSnapshot] = useState<BoundRows<Member>>(emptyBoundRows());
   const [search, setSearch] = useState("");
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [kickingUserId, setKickingUserId] = useState<string | null>(null);
 
   const isAdmin = isAdminRole(profile?.role);
+  const viewerKey = viewerIdentityKey({
+    uid: user?.uid,
+    email: user?.email,
+    emailVerified: user?.emailVerified,
+    role: profile?.role,
+    scope: "members",
+  });
+  const generationRef = useRef(0);
+  const identityRef = useRef(viewerKey);
+  identityRef.current = viewerKey;
 
   useEffect(() => {
     if (!isLoading && !isAdmin) {
@@ -49,35 +58,53 @@ export default function AdminMembersPage() {
   }, [isAdmin, isLoading, router]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    const generation = startSensitiveGeneration(generationRef.current);
+    generationRef.current = generation;
+    const identityKey = viewerKey;
+    if (isLoading || !isAdmin) {
+      setLoadingMembers(false);
+      return;
+    }
+    setLoadingMembers(true);
+    let cancelled = false;
 
-    const unsubscribe = onSnapshot(
-      collection(db, "users"),
-      (snapshot) => {
-        const nextMembers = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Member[];
-
+    const loadMembers = async () => {
+      try {
+        const nextMembers = await fetchMemberDirectory();
+        if (cancelled) return;
         nextMembers.sort((a, b) => {
-          const roleDiff = Number((b.role || "user") === "admin") - Number((a.role || "user") === "admin");
+          const roleDiff = Number(b.role === "admin") - Number(a.role === "admin");
           if (roleDiff !== 0) return roleDiff;
           return getDisplayName(a).localeCompare(getDisplayName(b), "ko");
         });
-
-        setMembers(nextMembers);
-        setLoadingMembers(false);
-      },
-      (error) => {
+        const published = publishBoundRows(generationRef.current, identityRef.current, {
+          generation,
+          identityKey,
+          rows: nextMembers,
+        });
+        if (published) setMemberSnapshot(published);
+      } catch (error) {
         console.error("Error loading members:", error);
+        const published = publishBoundRows(generationRef.current, identityRef.current, {
+          generation,
+          identityKey,
+          rows: [],
+        });
+        if (!published) return;
+        setMemberSnapshot(published);
         toast.error("회원 목록을 불러오지 못했습니다.");
-        setLoadingMembers(false);
+      } finally {
+        if (!cancelled && generationRef.current === generation) setLoadingMembers(false);
       }
-    );
+    };
 
-    return () => unsubscribe();
-  }, [isAdmin]);
+    void loadMembers();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, isLoading, viewerKey]);
 
+  const members = visibleBoundRows(memberSnapshot, viewerKey);
   const filteredMembers = members.filter((member) => {
     const keyword = search.trim().toLowerCase();
     if (!keyword) return true;
@@ -102,7 +129,7 @@ export default function AdminMembersPage() {
       return;
     }
 
-    if (targetUserId === user?.uid || member.role === "admin") {
+    if (!canRemoveMember(user?.uid, member)) {
       toast.error("보호된 관리자 계정은 탈퇴시킬 수 없습니다.");
       return;
     }
@@ -111,12 +138,27 @@ export default function AdminMembersPage() {
       return;
     }
 
+    const identityAtKick = identityRef.current;
     setKickingUserId(targetUserId);
     try {
-      const functionsInstance = getFunctions(firebaseApp, "us-central1");
-      const deleteUserByAdmin = httpsCallable(functionsInstance, "deleteUserByAdmin");
+      const deleteUserByAdmin = httpsCallable(functions, "deleteUserByAdmin");
       await deleteUserByAdmin({ targetUserId });
+      if (identityRef.current !== identityAtKick) return;
+      const generation = startSensitiveGeneration(generationRef.current);
+      generationRef.current = generation;
+      setMemberSnapshot((current) => removeBoundRow(current, targetUserId, identityAtKick));
       toast.success("계정을 탈퇴 처리했습니다.");
+      try {
+        const refreshed = await fetchMemberDirectory();
+        const published = publishBoundRows(generationRef.current, identityRef.current, {
+          generation,
+          identityKey: identityAtKick,
+          rows: refreshed,
+        });
+        if (published) setMemberSnapshot(published);
+      } catch (refreshError) {
+        console.error("Error refreshing members after removal:", refreshError);
+      }
     } catch (error) {
       console.error("Error deleting user by admin:", error);
       toast.error("계정 탈퇴 처리 중 오류가 발생했습니다.");
@@ -237,7 +279,7 @@ export default function AdminMembersPage() {
                             <Badge variant="outline">보호 계정</Badge>
                           )}
                         </div>
-                        <p className="text-sm text-slate-500">{member.email || "이메일 없음"}</p>
+                        <p className="text-sm text-slate-500">{emailLabel(member)}</p>
                         <p className="text-xs text-slate-400">UID: {member.uid || member.id}</p>
                       </div>
                     </div>

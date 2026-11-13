@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Loader2, Users, Calendar, Search, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { isAppTestCompleted, isParticipationExpired } from "@/lib/test-period";
+import { fetchPublicProfiles } from "@/lib/member-data";
 
 interface App {
   id: string;
@@ -41,7 +42,6 @@ type JoinedBadgeStatus = "active" | "pending" | "completed";
 
 interface RankingUser {
   id: string;
-  email?: string;
   nickname?: string;
   stats?: {
     testsJoined?: number;
@@ -60,8 +60,7 @@ const categories = [
   { id: "test-completed", label: "테스트 완료" },
 ] as const;
 
-const getDisplayName = (user: RankingUser) =>
-  user.nickname?.trim() || user.email?.split("@")[0] || "익명 사용자";
+const getDisplayName = (user: RankingUser) => user.nickname?.trim() || "익명 사용자";
 
 const getCreatedAtMillis = (value: unknown) => {
   if (!value) return 0;
@@ -113,12 +112,10 @@ export default function ExplorePage() {
         const participationsQuery = user
           ? query(collection(db, "participations"), where("testerId", "==", user.uid))
           : null;
-        const usersQuery = collection(db, "users");
-
-        const [appsSnapshot, participationsSnapshot, usersSnapshot] = await Promise.all([
+        const [appsSnapshot, participationsSnapshot, profiles] = await Promise.all([
           getDocs(appsQuery),
           participationsQuery ? getDocs(participationsQuery) : Promise.resolve(null),
-          getDocs(usersQuery),
+          user ? fetchPublicProfiles() : Promise.resolve([]),
         ]);
 
         if (cancelled) return;
@@ -142,10 +139,7 @@ export default function ExplorePage() {
           joinedStatuses[participation.appId] = status === "pending" ? "pending" : "active";
         });
 
-        const rankedUsers = usersSnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as RankingUser[];
+        const rankedUsers = profiles as RankingUser[];
 
         const nextDeveloperRankById = [...rankedUsers]
           .sort((a, b) => {

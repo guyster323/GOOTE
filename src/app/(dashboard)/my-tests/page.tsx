@@ -11,6 +11,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { fetchOwnAppTesterIds } from "@/lib/member-data";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -133,34 +134,9 @@ export default function MyTestsPage() {
           const hasMyApps = myApps.length > 0;
           const myAppIdSet = new Set(myApps.map((a) => a.id));
 
-          const developerIds = Array.from(
-            new Set(
-              notCompletedApps
-                .map((p) => appInfoMap[p.appId]?.developerId)
-                .filter((id): id is string => Boolean(id))
-            )
-          );
-
-          const developersTestingMine = new Set<string>();
-
-          if (hasMyApps && developerIds.length > 0) {
-            for (const testerIds of chunk(developerIds, 10)) {
-              const crossSnap = await getDocs(
-                query(
-                  collection(db, "participations"),
-                  where("testerId", "in", testerIds),
-                  where("status", "in", ["active", "completed"])
-                )
-              );
-
-              crossSnap.docs.forEach((crossDoc) => {
-                const cross = crossDoc.data() as { testerId?: string; appId?: string };
-                if (cross.testerId && cross.appId && myAppIdSet.has(cross.appId)) {
-                  developersTestingMine.add(cross.testerId);
-                }
-              });
-            }
-          }
+          const developersTestingMine = hasMyApps
+            ? await fetchOwnAppTesterIds(Array.from(myAppIdSet))
+            : new Set<string>();
 
           const crossMap: Record<string, CrossStatus> = {};
           notCompletedApps.forEach((p) => {

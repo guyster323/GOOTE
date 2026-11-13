@@ -1,23 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchPublicProfiles, type PublicProfile } from "@/lib/member-data";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Crown, Users, Trophy } from "lucide-react";
 
-type RankingUser = {
-  id: string;
-  email?: string;
-  nickname?: string;
-  profileImage?: string;
-  stats?: {
-    testsJoined?: number;
-    testsCompleted?: number;
-    totalConsecutiveDays?: number;
-  };
-};
+type RankingUser = PublicProfile;
 
 const getCrownStyle = (rank: number) => {
   if (rank === 1) {
@@ -43,34 +33,38 @@ const getCrownStyle = (rank: number) => {
   };
 };
 
-const getDisplayName = (user: RankingUser) =>
-  user.nickname?.trim() || user.email?.split("@")[0] || "익명 사용자";
+const getDisplayName = (user: RankingUser) => user.nickname?.trim() || "익명 사용자";
 
 export default function RankingPage() {
+  const { user, isLoading: authLoading } = useAuth();
   const [members, setMembers] = useState<RankingUser[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(db, "users"),
-      (snapshot) => {
-        const fetchedMembers = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as RankingUser[];
-
-        setMembers(fetchedMembers);
-        setLoading(false);
-      },
-      (error) => {
+    if (authLoading) return;
+    if (!user) {
+      setMembers([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    const loadMembers = async () => {
+      try {
+        const fetchedMembers = await fetchPublicProfiles();
+        if (!cancelled) setMembers(fetchedMembers);
+      } catch (error) {
         console.error("Error fetching ranking users:", error);
-        setMembers([]);
-        setLoading(false);
+        if (!cancelled) setMembers([]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    );
-
-    return () => unsubscribe();
-  }, []);
+    };
+    void loadMembers();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, user]);
 
   const rankedMembers = useMemo(() => {
     return [...members]
@@ -152,7 +146,6 @@ export default function RankingPage() {
                   )}
                   <div>
                     <Badge className={crown.badgeClassName}>{member.testsJoined}회 참여</Badge>
-                    <p className="mt-3 text-sm text-slate-500">{member.email || "이메일 없음"}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -212,7 +205,7 @@ export default function RankingPage() {
                       <p className="text-lg font-black text-slate-900">{getDisplayName(member)}</p>
                       {crown && <Crown className={`h-5 w-5 ${crown.iconClassName}`} aria-label={crown.label} />}
                     </div>
-                    <p className="text-sm text-slate-500">{member.email || "이메일 없음"}</p>
+                    <p className="text-sm text-slate-500">{member.stats.totalConsecutiveDays}일 연속</p>
                   </div>
                 </div>
 
