@@ -86,6 +86,7 @@ Release order stays: deploy Functions first, then Hosting, then Firestore rules.
 - [x] After the second report and successful gates, commit only scoped files, push a focused branch, create/review/merge its PR, and deploy that exact merged source to goote-f48d8. No force push or deletion of existing functions. PR #2 merged as `8ba0df84d1e9f10095e3fd5ef2b78bfe51623476` from reviewed source `f47b16e93f7397af55b9a9b403be45bb69169f3a`.
 - [x] Deploy affected Functions, Firestore rules and Hosting; preserve existing secret/environment configuration. Functions completed first, Hosting second (`sites/goote-f48d8/versions/bfc70c202208fbc9` at 2026-11-13T02:12:57Z), Firestore rules last (`rulesets/8df6f789-9d8a-49c4-935b-8c3025026036`, byte match with the merged source).
 - [x] Record release SHA/PR/deployment evidence and any specific untested authenticated flow. Previous Hosting version `5835a238fc2d2292` and ruleset `f46d3857-6f4d-4bdf-92fc-0d77e84209c3` are outside Git at `C:/Users/windo/goote-backups/security-2026-11-13T02-01-42Z`. See `docs/releases/2026-11-13-security-and-admin-privacy.md`.
+- [x] Configure the previously absent `PRIMARY_ADMIN_EMAIL` for the uniquely corroborated existing project owner and deploy only the five functions that read it. Owner-full and secondary-masked policy checks passed without printing the address or changing member data.
 
 ## Review focus and risks
 

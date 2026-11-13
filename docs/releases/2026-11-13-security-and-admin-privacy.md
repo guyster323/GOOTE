@@ -37,7 +37,7 @@ Completed in order, all with `--project goote-f48d8 --non-interactive`:
 
 - 50 functions are ACTIVE: 49 shared exports from `functions/shared-contract.json` on Node.js 22, plus `ssrgootef48d8` on Node.js 24. No shared contract name is missing.
 - The three new callables are ACTIVE in `us-central1` on Node.js 22.
-- GMAIL, Google Play, and the other existing function environment keys and value fingerprints are unchanged. `PRIMARY_ADMIN_EMAIL` was not present on the inspected functions before or after this deploy, and it is not in the local functions env file. Full-email mode therefore stays fail-closed until that server variable is configured. No secret values were printed or committed.
+- GMAIL, Google Play, and the other existing function environment keys and value fingerprints are unchanged. No secret values were printed or committed.
 - Released Firestore rules match the merged `firestore.rules` byte for byte.
 - Homepage `GET /` returned 200. Public `GET /apps/test-app-id` returned 200. A fresh browser session, not an existing signed-in profile, reached `/?mode=login&redirect=%2Fdashboard` from `/dashboard`.
 - `GET /api/track-daily` without a token returned 400 `Missing pid or token`.
@@ -54,4 +54,10 @@ Function names, runtime, status, and private environment fingerprints from befor
 
 ## Limits
 
-The authenticated participation-leave browser spec was skipped. A signed-in primary-admin versus secondary-admin screen was not driven, and no real account was impersonated. Canonical Android onboarding in `goote_app` was not part of this release and still uses its older profile merge. Because `PRIMARY_ADMIN_EMAIL` is unset on the deployed functions, every admin currently receives the masked-email path.
+The authenticated participation-leave browser spec was skipped. A signed-in primary-admin versus secondary-admin screen was not driven, and no real account was impersonated. Canonical Android onboarding in `goote_app` was not part of this release and still uses its older profile merge.
+
+## Owner configuration
+
+After the first deploy, `PRIMARY_ADMIN_EMAIL` was absent, so the owner also received masked emails. The existing project owner was corroborated without creating an account: the active GitHub login `guyster323`, the Git author name, the Firebase CLI account, and the sole Cloud project owner are the same identity, and that identity has exactly one verified Firebase Auth user whose `users/{uid}` role is `admin`.
+
+On 2026-11-13 the missing key was added to the ignored local Functions env files and deployed only to `getMemberDirectory`, `getAppParticipants`, `requestParticipation`, `onCommentCreated`, and `onUserCreated`. Those five functions are ACTIVE on Node.js 22 and carry the verified owner value. The other shared functions were not revised. A read-only policy check against the saved Auth and profile metadata returned owner-full true, secondary-admin masked true, and wrong, unverified, and missing configuration false. The personal address is not recorded in Git.
